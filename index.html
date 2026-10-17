@@ -248,7 +248,7 @@
     <div class="gap"></div>
     <button class="rbtn" id="turn" title="Turn the building (R)" aria-label="Turn the building">↪︎</button>
     <button class="rbtn" id="night" title="Day or night (N)" aria-label="Switch to night">🌙</button>
-    <button class="rbtn" id="mute" title="Sound on or off" aria-label="Turn sound off">🔊</button>
+    <button class="rbtn" id="mute" title="Sound and voice on or off" aria-label="Turn sound and voice off">🔊</button>
     <button class="rbtn" id="clear" title="Start a new empty town" aria-label="Start a new empty town">🗑️</button>
   </div>
 
@@ -983,13 +983,48 @@
     sparkle: () => { [1568, 2093, 2637].forEach((f, i) => tone(f, f * 1.01, .2, 'sine', .06, i * .08)); },
   };
 
+  /* ---------- voice: says what kids pick and build ---------- */
+  const canSpeak = 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
+  let voice = null;
+  function pickVoice() {
+    try {
+      const vs = speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang));
+      const liked = ['Samantha', 'Google US English', 'Karen', 'Moira', 'Tessa', 'Microsoft Aria', 'Microsoft Jenny', 'Google UK English Female'];
+      voice = liked.map(n => vs.find(v => v.name.startsWith(n))).find(Boolean) || vs.find(v => v.localService) || vs[0] || null;
+    } catch (e) { voice = null; }
+  }
+  if (canSpeak) { pickVoice(); speechSynthesis.addEventListener?.('voiceschanged', pickVoice); }
+  function say(text) {
+    if (!canSpeak || muted) return;
+    const clean = text.replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}]/gu, '').replace(/\s+/g, ' ').trim();
+    if (!clean) return;
+    try {
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(clean);
+      if (voice) u.voice = voice;
+      u.lang = voice ? voice.lang : 'en-US';
+      u.rate = .95; u.pitch = 1.2;
+      speechSynthesis.speak(u);
+    } catch (e) { /* speech unavailable */ }
+  }
+  const NAMES = {
+    house: 'house', cottage: 'cottage', flats: 'block of flats', castle: 'castle', school: 'school', hospital: 'hospital',
+    fire: 'fire station', shop: 'shop', tree: 'tree', pine: 'pine tree', flowers: 'flowers', pond: 'duck pond', lamp: 'street lamp',
+    road: 'road', car: 'car', police: 'police car', bus: 'bus', kid: 'kid', adult: 'grown-up', dog: 'dog',
+    ambulance: 'ambulance', firetruck: 'fire truck',
+  };
+  // "The Ice Cream Shop" -> "ice cream shop"
+  const nameOf = (type, g) => (type === 'shop' && g && g.userData.title ? g.userData.title.replace(/^The /, '').toLowerCase() : NAMES[type] || type);
+  const phraseOf = (type, g) => { const n = nameOf(type, g); return type === 'flowers' ? 'some flowers' : (/^[aeiou]/.test(n) ? 'an ' : 'a ') + n; };
+
   /* ---------- UI: toast ---------- */
   const toastEl = document.getElementById('toast');
   let toastTimer = 0, lastToast = '', lastToastAt = 0;
-  function toast(msg, ms = 2200) {
+  function toast(msg, ms = 2200, speak = true) {
     const now = performance.now();
     if (msg === lastToast && now - lastToastAt < 1500) return;
     lastToast = msg; lastToastAt = now;
+    if (speak) say(msg);
     toastEl.textContent = msg;
     toastEl.classList.remove('off');
     clearTimeout(toastTimer);
@@ -1017,7 +1052,7 @@
       b.setAttribute('role', 'tab');
       b.setAttribute('aria-selected', String(id === cat));
       b.innerHTML = `<span class="ico">${ico}</span><span>${label}${extra ? ` <span class="lbl-long">${extra}</span>` : ''}</span>`;
-      b.onclick = () => { cat = id; renderTabs(); renderItems(); const first = Object.keys(ITEMS).find(k => ITEMS[k].cat === id); setTool(first); };
+      b.onclick = () => { cat = id; renderTabs(); renderItems(); const first = Object.keys(ITEMS).find(k => ITEMS[k].cat === id); setTool(first); say(extra ? `${label} ${extra.replace('&', 'and')}` : label); };
       tabsEl.appendChild(b);
     }
   }
@@ -1030,7 +1065,7 @@
       b.setAttribute('aria-pressed', String(tool === id));
       b.title = it.label;
       b.innerHTML = `<span class="ico">${it.icon}</span><span class="lbl">${it.label}</span>`;
-      b.onclick = () => setTool(id);
+      b.onclick = () => { setTool(id); say(it.label); };
       itemsEl.appendChild(b);
     }
   }
@@ -1043,7 +1078,11 @@
     ghostSeed = newSeed();
     rebuildGhost();
   }
-  eraserBtn.onclick = () => setTool(tool === 'erase' ? Object.keys(ITEMS).find(k => ITEMS[k].cat === cat) : 'erase');
+  eraserBtn.onclick = () => {
+    const next = tool === 'erase' ? Object.keys(ITEMS).find(k => ITEMS[k].cat === cat) : 'erase';
+    setTool(next);
+    say(next === 'erase' ? 'Eraser' : ITEMS[next].label);
+  };
 
   /* ---------- stats + name ---------- */
   const statsEl = document.getElementById('stats');
@@ -1257,19 +1296,26 @@
   }
 
   /* ---------- actions ---------- */
-  function poke(m) {
+  // quiet: sound and jump only, no talking (used right after placing, when the voice names it)
+  function poke(m, quiet) {
     m.jump = 1;
     if (m.type === 'police') { sfx.siren(); m.sirenT = 3; }
     else if (m.it.vehicle) sfx.honk();
-    else if (m.type === 'dog') { sfx.woof(); toast('Woof woof! 🐾', 1200); }
-    else { sfx.hi(); toast(pick(Math.random, ['Hi there! 👋', 'Wheee!', 'I love this town!', 'Hello, mayor!', 'What a nice day!']), 1400); }
+    else if (m.type === 'dog') { sfx.woof(); if (!quiet) toast('Woof woof! 🐾', 1200); }
+    else { sfx.hi(); if (!quiet) toast(pick(Math.random, ['Hi there! 👋', 'Wheee!', 'I love this town!', 'Hello, mayor!', 'What a nice day!']), 1400); }
   }
   function eraseAt(tx, tz) {
     const ms = movers.filter(m => { const p = moverTile(m); return p.x === tx && p.z === tz; });
-    if (ms.length) { ms.forEach(removeMover); sfx.erase(); changed(); return true; }
+    if (ms.length) { ms.forEach(removeMover); sfx.erase(); say(`Bye bye, ${nameOf(ms[0].type)}!`); changed(); return true; }
     const c = cellAt(tx, tz);
-    if (c) { removeObj(c); sfx.erase(); changed(); return true; }
+    if (c) { removeObj(c); sfx.erase(); sayBye(c); changed(); return true; }
     return false;
+  }
+  // roads are erased and drawn by dragging, so only speak once in a while
+  let lastRoadTalk = 0;
+  function sayBye(o) {
+    if (o.type === 'road') { if (performance.now() - lastRoadTalk < 2500) return; lastRoadTalk = performance.now(); }
+    say(`Bye bye, ${nameOf(o.type, o.group)}!`);
   }
   /* ---------- tapping buildings ---------- */
   const v3 = new THREE.Vector3();
@@ -1433,7 +1479,8 @@
   document.getElementById('cTurn').onclick = turnSelected;
   document.getElementById('cRemove').onclick = () => {
     if (!selected) return;
-    removeObj(selected); closeCard(); sfx.erase(); changed();
+    const o = selected;
+    removeObj(o); closeCard(); sfx.erase(); sayBye(o); changed();
   };
   document.getElementById('cMoveTurn').onclick = () => { if (moving) { moving.rot = (moving.rot + 1) % 4; positionGhost(); sfx.road(); } };
   document.getElementById('cCancel').onclick = cancelMove;
@@ -1442,7 +1489,12 @@
   function tapTile(tx, tz) {
     if (moving) { dropMoving(tx, tz); return; }
     const c = cellAt(tx, tz);
-    if (tool !== 'erase' && c && c.type !== 'road') { play(c); openCard(c); return; }
+    if (tool !== 'erase' && c && c.type !== 'road') {
+      openCard(c);
+      say(c.group.userData.title || `The ${nameOf(c.type, c.group)}`);
+      play(c);   // a reaction with its own message talks over the name
+      return;
+    }
     if (selected) { closeCard(); if (!c) return; }
     act(tx, tz);
   }
@@ -1461,15 +1513,18 @@
     }
     if (it.kind === 'build') {
       const a = anchorFor(it, tx, tz);
-      placeObj(tool, a.x0, a.z0, rot, ghostSeed);
+      const o = placeObj(tool, a.x0, a.z0, rot, ghostSeed);
       ghostSeed = newSeed(); rebuildGhost(); sfx.place();
+      if (o) say(`You built ${phraseOf(o.type, o.group)}!`);
     } else if (it.kind === 'road') {
       placeObj('road', tx, tz, 0, 0); sfx.road();
+      if (performance.now() - lastRoadTalk > 2500) { lastRoadTalk = performance.now(); say('You built a road!'); }
     } else {
       const m = addMover(tool, tx, tz, ghostSeed);
       m.wait = .3;
       ghostSeed = newSeed(); rebuildGhost();
-      poke(m);
+      poke(m, true);
+      say(`Here comes ${phraseOf(m.type)}!`);
     }
     changed();
   }
@@ -1535,7 +1590,7 @@
     if (drag.pinch) { if (ptrs.size === 0) drag = null; return; }
     if (e.type === 'pointerup' && !drag.moved && !drag.painting && drag.button === 0) {
       const m = moverFromEvent(e);
-      if (m && !moving) { if (tool === 'erase') { removeMover(m); sfx.erase(); changed(); } else poke(m); }
+      if (m && !moving) { if (tool === 'erase') { removeMover(m); sfx.erase(); say(`Bye bye, ${nameOf(m.type)}!`); changed(); } else poke(m); }
       else { const t = tileFromEvent(e); if (t) tapTile(t.x, t.z); }
     }
     drag = null;
@@ -1565,8 +1620,10 @@
   const muteBtn = document.getElementById('mute');
   muteBtn.onclick = () => {
     muted = !muted; ensureAudio();
+    if (muted && canSpeak) { try { speechSynthesis.cancel(); } catch (e) { /* ignore */ } }
     muteBtn.textContent = muted ? '🔇' : '🔊';
-    muteBtn.setAttribute('aria-label', muted ? 'Turn sound on' : 'Turn sound off');
+    muteBtn.setAttribute('aria-label', muted ? 'Turn sound and voice on' : 'Turn sound and voice off');
+    if (!muted) say('Sound on!');
   };
   const clearBtn = document.getElementById('clear');
   let clearArmed = 0;
@@ -1696,7 +1753,7 @@
     loadTown(data || starterTown(), false);
     setTool('house');
     window.claude?.hot?.snapshot?.(() => ({ town: serialize() }));
-    toast('Tap the grass to build. Tap a building to play with it!', 5000);
+    toast('Tap the grass to build. Tap a building to play with it!', 5000, false);
     requestAnimationFrame(t => { last = t; frame(t); });
   }
   const fontsReady = document.fonts ? Promise.race([document.fonts.load('800 40px "Baloo 2"'), new Promise(r => setTimeout(r, 1500))]) : Promise.resolve();
