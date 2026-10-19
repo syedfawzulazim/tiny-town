@@ -10,6 +10,13 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&display=swap">
 <style>
   html, body { margin: 0; }
+  :root {
+    /* space kept clear of notches, rounded corners and the home bar on phones */
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    --safe-l: env(safe-area-inset-left, 0px);
+    --safe-r: env(safe-area-inset-right, 0px);
+  }
   /* Layout: a floating 3D diorama island fills the screen; chunky toy-block panels float over it:
      town name + counts top-left, camera rail on the right, build tray along the bottom. */
   :root {
@@ -37,7 +44,9 @@
     -webkit-tap-highlight-color: transparent;
     user-select: none;
     -webkit-user-select: none;
+    overscroll-behavior: none;
   }
+  button { touch-action: manipulation; }
   #app { position: relative; height: 100%; overflow: hidden; background: linear-gradient(#8fd3ff, #dff4ff); }
   #c { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: pointer; }
 
@@ -54,9 +63,9 @@
   /* Town name + counts */
   .top {
     position: absolute;
-    top: 12px;
-    left: max(16px, env(safe-area-inset-left, 0px));
-    max-width: calc(100% - 96px - env(safe-area-inset-right, 0px));
+    top: calc(12px + var(--safe-t));
+    left: max(16px, var(--safe-l));
+    max-width: calc(100% - 96px - var(--safe-r));
     padding: 6px 14px 8px;
     display: flex;
     flex-direction: column;
@@ -83,12 +92,14 @@
   /* Camera rail */
   .rail {
     position: absolute;
-    top: 12px;
-    right: max(16px, env(safe-area-inset-right, 0px));
+    top: calc(12px + var(--safe-t));
+    right: max(16px, var(--safe-r));
     display: flex;
     flex-direction: column;
     gap: 8px;
   }
+  .rail-more { display: flex; flex-direction: column; gap: 8px; }
+  .rail .more-btn { display: none; }
   .rbtn {
     width: 48px; height: 48px;
     display: grid; place-items: center;
@@ -106,9 +117,9 @@
   /* Build tray */
   .tray {
     position: absolute;
-    left: 0; right: 0; bottom: 12px;
-    padding-left: max(16px, env(safe-area-inset-left, 0px));
-    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    left: 0; right: 0; bottom: calc(12px + var(--safe-b));
+    padding-left: max(16px, var(--safe-l));
+    padding-right: max(16px, var(--safe-r));
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -153,7 +164,7 @@
 
   .toast {
     position: absolute;
-    left: 50%; top: 96px;
+    left: 50%; top: calc(96px + var(--safe-t));
     transform: translate(-50%, 0);
     max-width: calc(100% - 32px);
     width: max-content;
@@ -208,28 +219,93 @@
   .cbtn.go { background: var(--sun); border-color: var(--sun-edge); box-shadow: 0 3px 0 var(--sun-edge); }
   .cbtn.danger { background: var(--coral-soft); border-color: var(--coral); box-shadow: 0 3px 0 var(--coral); }
 
+  /* "Pick something to build" bubble, shown while nothing is selected */
+  .pick-hint {
+    font-weight: 800; font-size: 1.05rem;
+    padding: 6px 16px;
+    background: var(--sun); color: var(--ink);
+    border: 2px solid var(--sun-edge);
+    border-radius: 999px;
+    box-shadow: 0 3px 0 var(--sun-edge);
+    animation: hint-bob 1.6s ease-in-out infinite;
+  }
+  .pick-hint.nudge { animation: hint-nudge .5s ease-out, hint-bob 1.6s ease-in-out .5s infinite; }
+  .tray.idle .shelf { animation: shelf-glow 1.6s ease-in-out infinite; }
+  @keyframes hint-bob { 50% { transform: translateY(-4px); } }
+  @keyframes hint-nudge { 30% { transform: scale(1.15); } 60% { transform: scale(.95); } }
+  @keyframes shelf-glow { 50% { box-shadow: 0 4px 0 var(--edge), 0 0 0 5px rgba(255, 201, 60, .55); } }
+
   @media (max-width: 560px) {
     #townName { font-size: 1.3rem; width: 9ch; }
     .stats { font-size: .82rem; }
-    .rbtn { width: 42px; height: 42px; font-size: 1.15rem; }
-    .rbtn.warn { width: 42px; font-size: .64rem; }
-    .rail { gap: 6px; }
     .item { width: 70px; min-height: 72px; }
     .item .ico { font-size: 1.8rem; }
     .item .lbl { font-size: .74rem; }
     .tab { font-size: .88rem; padding: 3px 10px 3px 8px; }
     .tab .lbl-long { display: none; }
     .shelf { padding: 6px 8px; gap: 6px; }
-    .toast { top: 108px; font-size: .95rem; }
+    .toast { top: calc(108px + var(--safe-t)); font-size: .95rem; }
   }
-  @media (max-height: 720px) {
-    .rbtn { width: 40px; height: 40px; font-size: 1.1rem; border-radius: 12px; }
-    .rbtn.warn { width: 40px; font-size: .62rem; }
-    .rail { gap: 5px; }
+  @media (max-height: 720px) and (min-width: 601px) and (min-height: 501px) {
+    .rbtn { width: 44px; height: 44px; font-size: 1.15rem; border-radius: 12px; }
+    .rbtn.warn { width: 44px; font-size: .64rem; }
+    .rail, .rail-more { gap: 6px; }
     .rail .gap { display: none; }
+  }
+
+  /* phones (upright or sideways): only 🎯, 🌙 and ⋯ on the right; ⋯ opens the rest */
+  @media (max-width: 600px), (max-height: 500px) {
+    .rail .more-btn { display: grid; }
+    .stats .w { display: none; }
+    .rail { gap: 8px; }
+    .rail .gap { display: none; }
+    .rbtn { width: 44px; height: 44px; font-size: 1.2rem; border-radius: 13px; }
+    .rbtn.warn { width: 44px; font-size: .64rem; }
+    .rail-more {
+      display: none;
+      position: absolute; top: 0; right: calc(100% + 8px);
+      grid-template-columns: repeat(2, 44px);
+      gap: 8px; padding: 8px;
+      background: var(--panel); border: 2px solid var(--edge); border-radius: 18px;
+      box-shadow: 0 4px 0 var(--edge);
+    }
+    .rail.open .rail-more { display: grid; }
+    .rail.open .more-btn { background: var(--sun); border-color: var(--sun-edge); box-shadow: 0 4px 0 var(--sun-edge); }
+    .top { max-width: calc(100% - 84px - var(--safe-r)); padding: 4px 12px 6px; }
+    #townName { font-size: 1.15rem; width: 10ch; }
+    .pencil { font-size: .8rem; }
+    .stats { font-size: .74rem; gap: 2px 8px; }
+    .tray { gap: 6px; bottom: calc(8px + var(--safe-b)); }
+    .tabs { gap: 5px; padding-bottom: 4px; }
+    .tab { font-size: .82rem; padding: 3px 9px 3px 7px; gap: 4px; }
+    .tab .ico { font-size: 1.1rem; }
+    .shelf { padding: 4px 6px; gap: 6px; border-radius: 16px; }
+    .items { gap: 6px; padding: 5px 2px 7px; }
+    .item { width: 64px; min-height: 64px; border-radius: 14px; }
+    .item .ico { font-size: 1.6rem; }
+    .item .lbl { font-size: .7rem; }
+    .pick-hint { font-size: .9rem; padding: 4px 12px; }
+    .toast { top: calc(84px + var(--safe-t)); font-size: .92rem; padding: 6px 14px; }
+    .card { padding: 10px 12px 12px; gap: 8px; }
+    .card-head > .ico { font-size: 1.9rem; }
+    .card-title { font-size: 1.05rem; }
+    .card-sub { font-size: .85rem; }
+    .cbtn { font-size: .78rem; padding: 4px 2px 6px; }
+    .cbtn .ico { font-size: 1.25rem; }
+  }
+  /* phone turned sideways: little height, so trim the extras */
+  @media (max-height: 500px) {
+    .stats { display: none; }
+    .tabs { padding-bottom: 2px; }
+    .item { width: 58px; min-height: 54px; }
+    .item .ico { font-size: 1.35rem; }
+    .pick-hint { font-size: .82rem; padding: 3px 10px; }
+    .toast { top: calc(56px + var(--safe-t)); }
+    .card-sub { display: none; }
   }
   @media (prefers-reduced-motion: reduce) {
     .item, .rbtn, .toast { transition: none; }
+    .pick-hint, .pick-hint.nudge, .tray.idle .shelf { animation: none; }
   }
 </style>
 </head>
@@ -246,17 +322,20 @@
     <div class="stats" id="stats"></div>
   </header>
 
-  <div class="rail" role="toolbar" aria-label="Look around">
-    <button class="rbtn" id="rotL" title="Spin town left (Q)" aria-label="Spin town left">⟲</button>
-    <button class="rbtn" id="rotR" title="Spin town right (E)" aria-label="Spin town right">⟳</button>
-    <button class="rbtn" id="zoomIn" title="Zoom in (+)" aria-label="Zoom in">＋</button>
-    <button class="rbtn" id="zoomOut" title="Zoom out (−)" aria-label="Zoom out">−</button>
+  <div class="rail" id="rail" role="toolbar" aria-label="Look around">
     <button class="rbtn" id="home" title="Back to the village (H)" aria-label="Back to the village">🎯</button>
-    <div class="gap"></div>
-    <button class="rbtn" id="turn" title="Turn the building (R)" aria-label="Turn the building">↪︎</button>
     <button class="rbtn" id="night" title="Day or night (N)" aria-label="Switch to night">🌙</button>
-    <button class="rbtn" id="mute" title="Sound and voice on or off" aria-label="Turn sound and voice off">🔊</button>
-    <button class="rbtn" id="clear" title="Start a new empty town" aria-label="Start a new empty town">🗑️</button>
+    <button class="rbtn more-btn" id="moreBtn" title="More buttons" aria-label="More buttons" aria-expanded="false" aria-controls="railMore">⋯</button>
+    <div class="rail-more" id="railMore">
+      <button class="rbtn" id="rotL" title="Spin town left (Q)" aria-label="Spin town left">⟲</button>
+      <button class="rbtn" id="rotR" title="Spin town right (E)" aria-label="Spin town right">⟳</button>
+      <button class="rbtn" id="zoomIn" title="Zoom in (+)" aria-label="Zoom in">＋</button>
+      <button class="rbtn" id="zoomOut" title="Zoom out (−)" aria-label="Zoom out">−</button>
+      <div class="gap"></div>
+      <button class="rbtn" id="turn" title="Turn the building (R)" aria-label="Turn the building">↪︎</button>
+      <button class="rbtn" id="mute" title="Sound and voice on or off" aria-label="Turn sound and voice off">🔊</button>
+      <button class="rbtn" id="clear" title="Start a new empty town" aria-label="Start a new empty town">🗑️</button>
+    </div>
   </div>
 
   <div class="card panel" id="card" role="dialog" aria-labelledby="cardTitle" hidden>
@@ -282,7 +361,8 @@
 
   <div class="toast off" id="toast" role="status" aria-live="polite"></div>
 
-  <nav class="tray" aria-label="Build things">
+  <nav class="tray idle" id="tray" aria-label="Build things">
+    <div class="pick-hint" id="pickHint" role="status">👇 Pick something to build!</div>
     <div class="tabs" id="tabs" role="tablist"></div>
     <div class="shelf panel">
       <div class="items" id="items" role="toolbar" aria-label="Things to build"></div>
@@ -881,6 +961,7 @@
     ambulance: { label: 'Ambulance', icon: '🚑', kind: 'mover', vehicle: true, speed: 1.8, make: makeAmbulance },
     firetruck: { label: 'Fire Truck', icon: '🚒', kind: 'mover', vehicle: true, speed: 1.7, make: makeFireTruck },
     erase:    { label: 'Eraser', kind: 'erase' },
+    look:     { label: 'Look around', kind: 'look' },   // nothing picked: tapping only looks and plays
   };
   // what the card says, and how high the pop-up emoji starts
   const FACTS = {
@@ -996,7 +1077,12 @@
     for (let j = 0; j < n; j++) ball(g, .5 + Math.random() * .5, '#ffffff', j * .65 - n * .32, Math.random() * .3, (Math.random() - .5) * .7, 1);
     g.position.set(Math.random() * 80 - 40, 6 + Math.random() * 2.5, Math.random() * 44 - 22);   // below the camera
     g.userData.speed = .25 + Math.random() * .35;
-    scene.add(bake(g)); clouds.push(g);
+    bake(g);
+    // each cloud gets its own material so it can fade out when it drifts in front of the camera
+    g.userData.mat = vcMat.clone();
+    g.userData.mat.transparent = true;
+    g.traverse(o => { if (o.isMesh) o.material = g.userData.mat; });
+    scene.add(g); clouds.push(g);
   }
   const birds = [];
   for (let i = 0; i < 5; i++) {
@@ -1331,7 +1417,7 @@
   };
 
   /* ---------- UI: tray ---------- */
-  let tool = 'house', cat = 'homes', rot = 0, ghostSeed = newSeed();
+  let tool = 'look', cat = 'homes', rot = 0, ghostSeed = newSeed();
   const tabsEl = document.getElementById('tabs');
   const itemsEl = document.getElementById('items');
   const eraserBtn = document.getElementById('eraser');
@@ -1344,7 +1430,11 @@
       b.setAttribute('role', 'tab');
       b.setAttribute('aria-selected', String(id === cat));
       b.innerHTML = `<span class="ico">${ico}</span><span>${label}${extra ? ` <span class="lbl-long">${extra}</span>` : ''}</span>`;
-      b.onclick = () => { cat = id; renderTabs(); renderItems(); const first = Object.keys(ITEMS).find(k => ITEMS[k].cat === id); setTool(first); say(extra ? `${label} ${extra.replace('&', 'and')}` : label); };
+      b.onclick = () => {
+        cat = id; renderTabs(); renderItems();
+        if (tool !== 'erase' && ITEMS[tool].cat !== id) setTool('look');
+        say(extra ? `${label} ${extra.replace('&', 'and')}` : label);
+      };
       tabsEl.appendChild(b);
     }
   }
@@ -1357,7 +1447,8 @@
       b.setAttribute('aria-pressed', String(tool === id));
       b.title = it.label;
       b.innerHTML = `<span class="ico">${it.icon}</span><span class="lbl">${it.label}</span>`;
-      b.onclick = () => { setTool(id); say(it.label); };
+      // tapping the picked item again puts it down
+      b.onclick = () => { if (tool === id) { setTool('look'); say('Look around'); } else { setTool(id); say(it.label); } };
       itemsEl.appendChild(b);
     }
   }
@@ -1371,10 +1462,35 @@
     rebuildGhost();
   }
   eraserBtn.onclick = () => {
-    const next = tool === 'erase' ? Object.keys(ITEMS).find(k => ITEMS[k].cat === cat) : 'erase';
+    const next = tool === 'erase' ? 'look' : 'erase';
     setTool(next);
-    say(next === 'erase' ? 'Eraser' : ITEMS[next].label);
+    say(ITEMS[next].label);
   };
+
+  /* the bubble that asks kids to pick something, shown while nothing is picked */
+  const trayEl = document.getElementById('tray');
+  const hintEl = document.getElementById('pickHint');
+  function updateHint() {
+    const idle = tool === 'look' && !moving;
+    hintEl.hidden = !idle;
+    trayEl.classList.toggle('idle', idle);
+  }
+  function nudgeHint() {
+    hintEl.classList.remove('nudge');
+    void hintEl.offsetWidth;   // restart the animation
+    hintEl.classList.add('nudge');
+    sfx.nope();
+    say('Pick something to build!');
+  }
+
+  /* phones: ⋯ opens the extra camera and town buttons */
+  const railEl = document.getElementById('rail');
+  const moreBtn = document.getElementById('moreBtn');
+  function setMenu(open) {
+    railEl.classList.toggle('open', open);
+    moreBtn.setAttribute('aria-expanded', String(open));
+  }
+  moreBtn.onclick = () => setMenu(!railEl.classList.contains('open'));
 
   /* ---------- stats + name ---------- */
   const statsEl = document.getElementById('stats');
@@ -1383,7 +1499,8 @@
     let homes = 0, people = 0, pets = 0, cars = 0;
     for (const o of objs) homes += ITEMS[o.type].homes || 0;
     for (const m of movers) { if (m.temp) continue; if (m.it.person) people++; else if (m.it.pet) pets++; else if (m.it.vehicle) cars++; }
-    statsEl.innerHTML = `<span>🏠 <b>${homes}</b> homes</span><span>🧒 <b>${people}</b> people</span><span>🐕 <b>${pets}</b> pets</span><span>🚗 <b>${cars}</b> vehicles</span>`;
+    statsEl.innerHTML = `<span title="homes">🏠 <b>${homes}</b><span class="w"> homes</span></span><span title="people">🧒 <b>${people}</b><span class="w"> people</span></span>`
+      + `<span title="pets">🐕 <b>${pets}</b><span class="w"> pets</span></span><span title="vehicles">🚗 <b>${cars}</b><span class="w"> vehicles</span></span>`;
   }
   nameEl.addEventListener('input', changed);
   nameEl.addEventListener('keydown', e => { if (e.key === 'Enter') nameEl.blur(); e.stopPropagation(); });
@@ -1565,7 +1682,8 @@
   function rebuildGhost() {
     if (ghost) { scene.remove(ghost); ghost = null; }
     const { it, seed } = cur();
-    if (it.kind !== 'erase') {
+    updateHint();
+    if (it.kind !== 'erase' && it.kind !== 'look') {
       let g;
       if (it.kind === 'road') { g = new THREE.Group(); const a = new THREE.Mesh(roadGeo, mat('#545a66')); a.position.y = .015; g.add(a); }
       else g = bake(it.make(rngSeed(seed)));
@@ -1598,6 +1716,7 @@
   function positionGhost() {
     if (!hover) { hl.visible = false; if (ghost) ghost.visible = false; return; }
     const { it, rot: r } = cur();
+    if (it.kind === 'look') { hl.visible = false; return; }
     let { x0, z0, w, h } = anchorFor(it, hover.x, hover.z, r);
     let ok;
     if (it.kind === 'erase') {
@@ -1753,7 +1872,6 @@
   const cardSub = document.getElementById('cardSub');
   const cardActions = document.getElementById('cardActions');
   const moveActions = document.getElementById('moveActions');
-  const trayEl = document.querySelector('.tray');
   function showCard(icon, title, sub, isMove) {
     cardIco.textContent = icon;
     cardTitle.textContent = title;
@@ -1851,6 +1969,7 @@
 
   function act(tx, tz) {
     const it = ITEMS[tool];
+    if (it.kind === 'look') { nudgeHint(); return; }
     if (it.kind === 'erase') { eraseAt(tx, tz); return; }
     const why = problemAt(tx, tz);
     if (why === 'same') return;
@@ -1886,6 +2005,7 @@
   const isPaintTool = () => tool === 'road' || tool === 'erase';
   canvas.addEventListener('contextmenu', e => e.preventDefault());
   canvas.addEventListener('pointerdown', e => {
+    setMenu(false);
     ensureAudio();
     canvas.setPointerCapture(e.pointerId);
     ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -2000,7 +2120,7 @@
   window.addEventListener('keydown', e => {
     if (e.target === nameEl) return;
     const k = e.key.toLowerCase();
-    if (k === 'escape') { if (moving) cancelMove(); else closeCard(); }
+    if (k === 'escape') { if (moving) cancelMove(); else if (selected) closeCard(); else if (tool !== 'look') setTool('look'); setMenu(false); }
     else if (k === 'r') turn();
     else if (k === 'q') spin(-1);
     else if (k === 'e') spin(1);
@@ -2169,7 +2289,13 @@
       }
       if (u.flag) u.flag.rotation.y = Math.sin(time * 3) * .25;
     }
-    for (const c of clouds) { c.position.x += c.userData.speed * dt; if (c.position.x > 45) c.position.x = -45; }
+    for (const c of clouds) {
+      c.position.x += c.userData.speed * dt;
+      if (c.position.x > 45) c.position.x = -45;
+      const op = clamp((c.position.distanceTo(camera.position) - 12) / 10, 0, 1);
+      c.userData.mat.opacity = op;
+      c.visible = op > .02;
+    }
     runAnims(dt);
     runFloaters(dt);
     runPuffs(dt);
@@ -2188,9 +2314,9 @@
     cam.dist = cam.distT = fitDistance();
     renderTabs(); renderItems();
     loadTown(data || starterTown(), false);
-    setTool('house');
+    setTool('look');
     window.claude?.hot?.snapshot?.(() => ({ town: serialize() }));
-    toast('Tap the grass to build. Drag to look around. Tap a building to play!', 5500, false);
+    toast('Drag to look around. Tap a building to play!', 5000, false);
     requestAnimationFrame(t => { last = t; frame(t); });
   }
   const fontsReady = document.fonts ? Promise.race([document.fonts.load('800 40px "Baloo 2"'), new Promise(r => setTimeout(r, 1500))]) : Promise.resolve();
