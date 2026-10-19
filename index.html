@@ -1056,7 +1056,7 @@
   const hitGeo = new THREE.BoxGeometry(.32, .5, .32);
   function makeResident(r, { kid = false, royal = false } = {}) {
     const g = new THREE.Group();
-    const skin = soft(pick(r, SKINS)), hair = soft(pick(r, HAIRS));
+    const skinHex = pick(r, SKINS), skin = soft(skinHex), hair = soft(pick(r, HAIRS));
     const top = royal ? '#8a3fd1' : pick(r, CLOTHES), pants = soft(pick(r, PANTS));
     const legH = kid ? .07 : .095, bodyH = kid ? .1 : .12, headR = kid ? .088 : .08;
     const hipY = legH + .02, shY = hipY + bodyH - .025;
@@ -1079,9 +1079,9 @@
       return bake(p);
     });
     const head = new THREE.Group(); head.position.set(0, shY + .02, 0); g.add(head);
-    const hy = headR * .95, ez = headR * .86;
+    const hy = headR * .95;
     ball(head, headR, skin, 0, hy, 0, 2);
-    for (const sd of [-1, 1]) ball(head, .02, skin, sd * headR, hy - .006, 0, 0);
+    for (const sd of [-1, 1]) ball(head, .02, skin, sd * headR, hy - .006, 0, 1).scale.set(.6, 1, .85);
     const style = Math.floor(r() * 4);
     if (style === 3) {   // a cap
       const capC = soft(royal ? '#ffd23f' : pick(r, CLOTHES));
@@ -1093,10 +1093,26 @@
       if (style === 1) ball(head, .036, hair, 0, hy + headR * 1.02, -headR * .45, 1);
       if (style === 2) for (const sd of [-1, 1]) ball(head, .03, hair, sd * headR * .98, hy - .012, -headR * .32, 1);
     }
-    for (const sd of [-1, 1]) ball(head, .015, soft('#ff9e9e'), sd * .048, hy - .022, ez, 0).scale.set(1, .6, .4);
-    const smile = mesh(new THREE.TorusGeometry(.017, .0045, 6, 12, Math.PI), soft('#5a2a1a'));
-    smile.rotation.z = Math.PI; smile.position.set(0, hy - .024, headR * .96);
-    head.add(smile);
+    // the face sits on the curve of the head: fz gives the front of the head at a spot
+    const fz = (x, dy) => Math.sqrt(Math.max(0, headR * headR - x * x - dy * dy));
+    for (const sd of [-1, 1]) ball(head, .016, soft('#ff9e9e'), sd * .05, hy - .02, fz(.05, .02) - .004, 1).scale.set(1, .6, .4);
+    if (style !== 3) for (const sd of [-1, 1]) {   // eyebrows (a cap's brim hides them)
+      const b = box(head, .03, .008, .008, hair, sd * .033, hy + .042, 0);
+      b.position.z = fz(.033, .046) - .001; b.rotation.set(0, sd * .4, -sd * .18);
+    }
+    ball(head, .011, soft(mixHex(skinHex, '#000000', .12)), 0, hy - .012, fz(0, .012) + .002, 1).scale.set(1.1, .85, .8);   // nose
+    const mz = fz(0, .03) + .003;
+    if (r() < .5) {   // a big open smile
+      const m = mesh(new THREE.CircleGeometry(.019, 14, Math.PI, Math.PI), soft('#7a2630'));
+      m.position.set(0, hy - .026, mz); m.scale.y = .85; head.add(m);
+      box(head, .026, .005, .002, '#ffffff', 0, hy - .031, mz + .001);
+      const t = mesh(new THREE.CircleGeometry(.009, 10), soft('#ff7a8a'));
+      t.position.set(0, hy - .039, mz + .0012); t.scale.y = .55; head.add(t);
+    } else {
+      const smile = mesh(new THREE.TorusGeometry(.016, .0042, 6, 12, Math.PI), soft('#6a2a22'));
+      smile.rotation.z = Math.PI; smile.position.set(0, hy - .024, mz - .002);
+      head.add(smile);
+    }
     if (royal) {
       cyl(head, .046, .05, .03, '#ffd23f', 0, hy + headR * .82, 0, 10);
       for (let i = 0; i < 5; i++) { const a = i / 5 * Math.PI * 2; cone(head, .012, .03, '#ffd23f', Math.sin(a) * .045, hy + headR * .82 + .03, Math.cos(a) * .045, 4); }
@@ -1104,10 +1120,14 @@
     }
     // eyes blink, so they get a mesh of their own too
     const eyes = new THREE.Group(); eyes.position.set(0, hy + .006, 0); head.add(eyes);
+    const iris = soft(pick(r, ['#6b4226', '#4a3020', '#2f6fb3', '#3f8a4f', '#8a5a2b']));
     for (const sd of [-1, 1]) {
-      ball(eyes, .021, soft('#ffffff'), sd * .032, 0, ez, 1).scale.set(1, 1.15, .5);
-      ball(eyes, .015, soft('#2a1d16'), sd * .032, -.002, ez + .006, 0).scale.set(1, 1.15, .5);
-      ball(eyes, .005, soft('#ffffff'), sd * .032 + .005, .006, ez + .013, 0);
+      const x = sd * .032, z0 = fz(x, .006) - .006;
+      ball(eyes, .02, soft('#ffffff'), x, 0, z0, 2).scale.set(1, 1.15, .5);
+      ball(eyes, .0165, iris, x, -.001, z0 + .0055, 2).scale.set(1, 1.12, .45);
+      ball(eyes, .009, soft('#0d0d0d'), x, -.001, z0 + .009, 1).scale.set(1, 1.1, .4);
+      ball(eyes, .0052, soft('#ffffff'), x + .006, .007, z0 + .0125, 1);
+      ball(eyes, .0025, soft('#ffffff'), x - .005, -.007, z0 + .012, 1);
     }
     bake(eyes);
     eyes.traverse(o => { o.castShadow = false; });
@@ -1453,12 +1473,54 @@
     g.userData.speed = .25 + Math.random() * .35;
     scene.add(g); clouds.push(g);
   }
-  const birds = [];
-  for (let i = 0; i < 5; i++) {
+  /* birds in the sky: seagulls over the lake and swallows over the town.
+     Wings bend at the wrist; they flap for a while, then glide, and lean into their turns. */
+  // flat outline (x = along the wing, y = forwards), mirrored for the left side
+  function flatPart(pts, mirror, depth = .012) {
+    const p = mirror ? pts.map(([x, y]) => [-x, y]).reverse() : pts;
+    const sh = new THREE.Shape(); sh.moveTo(p[0][0], p[0][1]); for (const [x, y] of p.slice(1)) sh.lineTo(x, y); sh.closePath();
+    const geo = new THREE.ExtrudeGeometry(sh, { depth, bevelEnabled: false });
+    geo.rotateX(Math.PI / 2);
+    return geo;
+  }
+  const WING_IN = [[0, -.05], [.17, -.055], [.17, .045], [0, .06]];
+  const WING_OUT = [[0, -.055], [.12, -.065], [.24, -.05], [.1, .03], [0, .045]];
+  function makeSkyBird(gull) {
     const g = new THREE.Group();
-    box(g, .07, .05, .2, '#3a3a48');
-    const wl = box(g, .32, .015, .1, '#4a4a5a', -.17, .02, 0), wr = box(g, .32, .015, .1, '#4a4a5a', .17, .02, 0);
-    g.userData = { wl, wr, a: Math.random() * 6.28, r: 5 + Math.random() * 9, h: 4 + Math.random() * 2.5, s: (.12 + Math.random() * .1) * (i % 2 ? 1 : -1), cx: (Math.random() - .5) * 12, cz: (Math.random() - .5) * 12 };
+    const body = gull ? '#f7f8fa' : '#2c3550', wing = gull ? '#c9ced6' : '#2a3350', tipC = gull ? '#2b2b30' : '#1d2438';
+    ball(g, .06, soft(body), 0, 0, 0, 1).scale.set(.85, .75, 2.1);
+    ball(g, .045, soft(gull ? '#ffffff' : '#f1e3d3'), 0, -.022, .03, 1).scale.set(.8, .55, 1.6);
+    ball(g, .045, soft(body), 0, .025, .13, 1);
+    const bk = cone(g, .013, .055, gull ? '#f4b63a' : '#1a1a1a', 0, 0, 0, 6);
+    bk.rotation.x = Math.PI / 2; bk.position.set(0, .02, .19);
+    for (const sd of [-1, 1]) ball(g, .008, '#111111', sd * .03, .035, .155, 0);
+    const tail = mesh(flatPart(gull ? [[-.04, 0], [.04, 0], [.055, -.1], [-.055, -.1]] : [[-.03, 0], [.03, 0], [.07, -.17], [0, -.07], [-.07, -.17]], false, .008), soft(gull ? '#ffffff' : body));
+    tail.position.set(0, .01, -.1); g.add(tail);
+    const wings = [-1, 1].map(sd => {
+      const w = new THREE.Group(); w.position.set(sd * .04, .02, .02); g.add(w);
+      w.add(mesh(flatPart(WING_IN, sd < 0), soft(wing)));
+      const t = new THREE.Group(); t.position.set(sd * .17, 0, 0); w.add(t);
+      t.add(mesh(flatPart(WING_OUT, sd < 0), soft(gull ? tipC : wing)));
+      bake(t); w.userData.tip = t;
+      return bake(w);
+    });
+    g.userData.wings = wings;
+    bake(g);
+    g.traverse(o => { o.castShadow = false; });
+    g.scale.setScalar(gull ? 1.7 : 1.15);
+    g.rotation.order = 'YXZ';
+    return g;
+  }
+  const birds = [];
+  for (let i = 0; i < 7; i++) {
+    const gull = i < 3;
+    const g = makeSkyBird(gull);
+    const around = gull ? [LAKE.x - N / 2, LAKE.z - N / 2 + 2] : [(Math.random() - .5) * 12, (Math.random() - .5) * 12];
+    Object.assign(g.userData, {
+      a: Math.random() * 6.28, r: gull ? 3 + Math.random() * 3 : 5 + Math.random() * 8, h: gull ? 3.2 + Math.random() * 1.5 : 4 + Math.random() * 2.5,
+      s: (gull ? .16 + Math.random() * .08 : .25 + Math.random() * .12) * (i % 2 ? 1 : -1), cx: around[0], cz: around[1],
+      rate: gull ? 7 : 13, cycle: 3 + Math.random() * 3, flapFor: gull ? 1.2 : 1.8, t: Math.random() * 6,
+    });
     scene.add(g); birds.push(g);
   }
   const boat = new THREE.Group();
@@ -2888,11 +2950,14 @@
     boat.rotation.y = -a;
     for (const b of birds) {
       const u = b.userData;
-      u.a += u.s * dt;
-      b.position.set(u.cx + Math.cos(u.a) * u.r, u.h + Math.sin(time + u.r) * .3, u.cz + Math.sin(u.a) * u.r);
-      b.rotation.y = -u.a + (u.s > 0 ? 0 : Math.PI);
-      const f = Math.sin(time * 9 + u.r) * .6;
-      u.wl.rotation.z = f; u.wr.rotation.z = -f;
+      u.a += u.s * dt; u.t += dt;
+      const flapping = u.t % u.cycle < u.flapFor;
+      const f = flapping ? Math.sin(time * u.rate + u.r) : 0;
+      b.position.set(u.cx + Math.cos(u.a) * u.r, u.h + Math.sin(time * .7 + u.r) * .25 + f * .03, u.cz + Math.sin(u.a) * u.r);
+      b.rotation.y = Math.atan2(-Math.sin(u.a) * u.s, Math.cos(u.a) * u.s);   // face the way it flies
+      b.rotation.z = Math.sign(u.s) * .28;                                     // lean into the turn
+      const up = flapping ? f * .75 : .12, wrist = flapping ? f * .45 - .1 : .04;
+      u.wings.forEach((w, i) => { const sd = i ? 1 : -1; w.rotation.z = sd * up; w.userData.tip.rotation.z = sd * wrist; });
     }
     fireflies.position.y = Math.sin(time * .8) * .08;
   }
