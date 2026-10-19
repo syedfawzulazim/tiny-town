@@ -12,7 +12,7 @@ Open `index.html` in any modern browser. Nothing to install.
 - Drag with the road tool to draw roads. Cars and buses need roads to drive on. Draw a road across the river to build a bridge.
 - Tap a building to play with it: the school bell rings, the hospital sends out an ambulance, the duck jumps.
 - The card that opens lets you **Move**, **Turn** or **Remove** a building.
-- Drag to move around the island, scroll or pinch to zoom, twist two fingers (or right-drag) to spin. 🎯 takes you back to the village.
+- Drag to move around the island, pinch to zoom, twist two fingers (or right-drag) to spin. On a laptop trackpad, swipe with two fingers to move and pinch to zoom; a mouse wheel zooms. 🎯 takes you back to the village.
 - Press 🌙 for night time.
 
 Keyboard: arrow keys move, `R` turn, `Q` / `E` spin, `+` / `-` zoom, `H` back to the village, `N` day/night, `Esc` close.

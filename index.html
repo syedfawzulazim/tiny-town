@@ -2075,7 +2075,16 @@
   canvas.addEventListener('pointerup', endPointer);
   canvas.addEventListener('pointercancel', endPointer);
   canvas.addEventListener('pointerleave', e => { if (!drag && e.pointerType === 'mouse') { hover = null; positionGhost(); } });
-  canvas.addEventListener('wheel', e => { e.preventDefault(); zoomBy(e.deltaY > 0 ? 1.1 : 1 / 1.1); }, { passive: false });
+  // Trackpads: two-finger swipe moves around, pinch zooms (the browser sends pinch as ctrl + wheel).
+  // A mouse wheel turns in steps of 120 and zooms.
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    setMenu(false);
+    if (e.ctrlKey || e.metaKey) { zoomBy(Math.exp(clamp(e.deltaY, -50, 50) * .01)); return; }
+    const mouseWheel = e.deltaMode === 1 || (e.deltaX === 0 && e.wheelDeltaY && Math.abs(e.wheelDeltaY) % 120 === 0);
+    if (mouseWheel) { zoomBy(e.deltaY > 0 ? 1.1 : 1 / 1.1); return; }
+    panBy(-e.deltaX, -e.deltaY);
+  }, { passive: false });
 
   /* ---------- rail buttons + keys ---------- */
   const spin = d => { cam.yawT += d * Math.PI / 4; };
@@ -2316,7 +2325,7 @@
     loadTown(data || starterTown(), false);
     setTool('look');
     window.claude?.hot?.snapshot?.(() => ({ town: serialize() }));
-    toast('Drag to look around. Tap a building to play!', 5000, false);
+    toast('Drag to look around. Tap a building to play!', 5000, false);   // trackpads: two-finger swipe also works
     requestAnimationFrame(t => { last = t; frame(t); });
   }
   const fontsReady = document.fonts ? Promise.race([document.fonts.load('800 40px "Baloo 2"'), new Promise(r => setTimeout(r, 1500))]) : Promise.resolve();
