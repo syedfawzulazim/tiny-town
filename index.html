@@ -1307,59 +1307,110 @@
   }
   const waterfall = makeBoard();
 
-  /* the mountain where the lake's water starts: rocky peaks with snow, and a waterfall into the lake */
+  /* the mountain where the lake's water starts: green, forested slopes, rock and a little snow up top,
+     and a waterfall running down a gully into the lake */
+  const cascadeMat = new THREE.ShaderMaterial({
+    uniforms: waterUniforms, vertexShader: WATER_VS, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    fragmentShader: `
+      uniform float uTime; uniform float uNight; varying vec2 vUv;
+      float h(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+      float n(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f);
+        return mix(mix(h(i), h(i + vec2(1., 0.)), f.x), mix(h(i + vec2(0., 1.)), h(i + vec2(1., 1.)), f.x), f.y); }
+      void main() {
+        vec2 p = vec2(vUv.x * 7., vUv.y * 4. + uTime * 2.4);      // streaks pour downwards
+        float s = n(p * vec2(1., 3.)) * .6 + n(p * vec2(2.3, 7.)) * .4;
+        vec3 c = mix(vec3(.30, .58, .82), vec3(.94, .97, 1.), smoothstep(.38, .82, s));
+        c = mix(c, vec3(.96, .98, 1.), smoothstep(.22, 0., vUv.y) * .8);   // white foam where it lands
+        c = mix(c, c * vec3(.22, .28, .55), uNight);
+        float edge = smoothstep(0., .22, vUv.x) * smoothstep(1., .78, vUv.x);
+        gl_FragColor = vec4(c, edge * (.7 + .3 * s));
+      }`,
+  });
+  // smooth shading for a merged-corner mesh: corners in the same place share one normal
+  function smoothNormals(geo) {
+    geo.computeVertexNormals();
+    const pos = geo.attributes.position, nor = geo.attributes.normal, acc = new Map(), v = new THREE.Vector3();
+    const key = i => `${pos.getX(i).toFixed(3)},${pos.getY(i).toFixed(3)},${pos.getZ(i).toFixed(3)}`;
+    for (let i = 0; i < pos.count; i++) { const k = key(i); if (!acc.has(k)) acc.set(k, new THREE.Vector3()); acc.get(k).add(v.fromBufferAttribute(nor, i)); }
+    for (let i = 0; i < pos.count; i++) { const a = acc.get(key(i)); v.copy(a).normalize(); nor.setXYZ(i, v.x, v.y, v.z); }
+  }
   function makeMountain() {
     const g = new THREE.Group();
     const cx = MOUNT.x - N / 2, cz = MOUNT.z - N / 2;
-    const cLow = new THREE.Color('#6f8d4a'), cRock = new THREE.Color('#8c8274'), cDark = new THREE.Color('#71685d'), cSnow = new THREE.Color('#f5f8fc');
-    const peak = (x, z, R, H, seed) => {
+    const GRASS = new THREE.Color('#5f9a43'), FOREST = new THREE.Color('#3f7a37'), ROCK = new THREE.Color('#8b8577'), SNOW = new THREE.Color('#f4f7fb');
+    const rocks = [];
+    const peak = (x, z, R, H, seed, gully) => {
       const r = rngSeed(seed);
-      const geo = new THREE.IcosahedronGeometry(1, 3);
-      const pos = geo.attributes.position, col = new Float32Array(pos.count * 3);
-      const bumps = Array.from({ length: 6 }, () => [r() * 6.28, r() * 6.28, .5 + r() * 1.5]);
-      const v = new THREE.Vector3(), c = new THREE.Color();
+      const geo = new THREE.IcosahedronGeometry(1, 5);
+      const pos = geo.attributes.position;
+      const waves = Array.from({ length: 9 }, (_, i) => ({ d: new THREE.Vector3(r() - .5, r() - .5, r() - .5).normalize(), f: 2 + i * 1.3 + r() * 2, p: r() * 6.28, a: 1 / (1 + i * .7) }));
+      const v = new THREE.Vector3(), hs = new Float32Array(pos.count), ns = new Float32Array(pos.count);
       for (let i = 0; i < pos.count; i++) {
         v.fromBufferAttribute(pos, i);
-        // the same corner always gets the same bump, so the faces stay joined
-        let n = 0; for (const [a, b, f] of bumps) n += Math.sin(v.x * f * 3 + a) * Math.sin(v.z * f * 3 + b) * Math.cos(v.y * f * 2);
-        n /= bumps.length;
+        // rolling hills plus sharper ridges
+        let n = 0, sum = 0;
+        for (const w of waves) { const t = Math.sin(v.dot(w.d) * w.f + w.p); n += w.a * (t * .6 + (1 - Math.abs(t)) * .4 - .2); sum += w.a; }
+        n /= sum;
         const up = Math.max(v.y, 0);
-        const y = v.y > 0 ? Math.pow(v.y, 1.25) * H + n * .35 : v.y * 1.6;
-        const sc = R * (1 - .55 * up) * (1 + n * .18);
+        let sc = R * (1 - .5 * up) * (1 + n * .24);
+        if (gully && v.z > 0) sc *= 1 - .16 * Math.exp(-(v.x * v.x) / .012) * v.z * (1 - up * .4);   // a groove for the waterfall
+        const y = v.y > 0 ? Math.pow(v.y, 1.15) * H * (1 + n * .12) : v.y * 1.8;
         pos.setXYZ(i, x + v.x * sc, y, z + v.z * sc);
-        const h = y / H;
-        if (h > .7 + n * .12) c.copy(cSnow);
-        else if (h > .22 + n * .1) c.copy(n > .05 ? cDark : cRock);
-        else c.copy(cLow).lerp(cRock, Math.max(0, h) * 3);
+        hs[i] = y / H; ns[i] = n;
+      }
+      smoothNormals(geo);
+      const nor = geo.attributes.normal, col = new Float32Array(pos.count * 3), c = new THREE.Color();
+      for (let i = 0; i < pos.count; i++) {
+        const h = hs[i], n = ns[i], steep = 1 - nor.getY(i);
+        if (h > .84 + n * .1) c.copy(SNOW);
+        else if (steep > .55 || h > .66 + n * .15) c.copy(ROCK).lerp(FOREST, clamp(.4 - steep, 0, .3));
+        else c.copy(GRASS).lerp(FOREST, clamp(h * 1.6 + n, 0, 1));
+        c.offsetHSL(0, 0, n * .05);
         col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
       }
       geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-      geo.computeVertexNormals();
-      const m = new THREE.Mesh(geo, vcMat);
+      const m = new THREE.Mesh(geo, vcSoft);
       m.castShadow = true; m.receiveShadow = true;
-      g.add(m);
+      g.add(m); rocks.push(m);
     };
-    peak(cx, cz - .4, 3.6, 4.8, 11);
-    peak(cx - 3.2, cz - 1.2, 2.6, 3.2, 23);
-    peak(cx + 3.3, cz - 1.0, 2.4, 2.9, 37);
-    // a few pines on the lower slopes
-    for (const [x, z, s] of [[-2.6, 1.3, .9], [2.7, 1.2, 1], [-1.7, 2.3, .8], [1.9, 2.4, .85], [-3.8, .6, .9]]) {
-      const t = bake(makePine(rngSeed(Math.round(x * 100 + z))));
-      t.scale.setScalar(s); t.position.set(cx + x, -.05, cz + z); g.add(t);
-    }
-    // the waterfall hugs the front of the mountain all the way down into the lake
+    peak(cx, cz - .4, 3.7, 4.6, 11, true);
+    peak(cx - 3.3, cz - 1.1, 2.7, 3.1, 23);
+    peak(cx + 3.4, cz - .9, 2.5, 2.8, 37);
     g.updateMatrixWorld(true);
-    const rc = new THREE.Raycaster(), rocks = g.children.filter(o => o.isMesh);
-    const surface = y => { rc.set(new THREE.Vector3(cx, y, cz + 8), new THREE.Vector3(0, 0, -1)); const h = rc.intersectObjects(rocks)[0]; return h ? h.point.z + .07 : cz + 3; };
-    const fg = new THREE.PlaneGeometry(.7, 1, 1, 10), fp = fg.attributes.position;
-    for (let i = 0; i < fp.count; i++) {
-      const k = .5 - fp.getY(i), y = 2.2 * (1 - k) + .02;   // k: 0 at the top, 1 at the bottom
-      fp.setXYZ(i, cx + fp.getX(i) * (1 + k * .5), y, surface(Math.max(y, .15)) + (k > .95 ? .25 : 0));
+    const rc = new THREE.Raycaster(), down = new THREE.Vector3(0, -1, 0);
+    // a forest on the lower and middle slopes, merged into one mesh so it costs almost nothing to draw
+    const forest = new THREE.Group(), tr = rngSeed(91);
+    for (let tries = 0; tries < 400 && forest.children.length < 70; tries++) {
+      const a = tr() * Math.PI * 2, d = Math.sqrt(tr()) * 5.2;
+      const x = cx + Math.cos(a) * d * 1.3, z = cz - .6 + Math.sin(a) * d * .8;
+      if (Math.abs(x - cx) < .6 && z > cz + .8) continue;   // keep the waterfall clear
+      rc.set(new THREE.Vector3(x, 12, z), down);
+      const hit = rc.intersectObjects(rocks)[0];
+      if (!hit || hit.point.y < .1 || hit.point.y > 2.1 || hit.face.normal.y < .55) continue;
+      const pine = tr() < .7;
+      const t = (pine ? makePine : makeTree)(rngSeed(tries * 7 + 3));
+      t.scale.multiplyScalar(.55 + tr() * .35);
+      t.position.copy(hit.point).y -= .04;
+      forest.add(t);
     }
-    fg.computeVertexNormals();
-    g.add(new THREE.Mesh(fg, fallMat));
+    g.add(bake(forest));
+    // the waterfall follows the gully all the way down into the lake
+    const surface = y => { rc.set(new THREE.Vector3(cx, y, cz + 8), new THREE.Vector3(0, 0, -1)); const h = rc.intersectObjects(rocks)[0]; return h ? h.point.z + .06 : cz + 3; };
+    const TOP = 2.7;
+    const fg = new THREE.PlaneGeometry(.6, 1, 1, 16), fp = fg.attributes.position;
+    for (let i = 0; i < fp.count; i++) {
+      const k = .5 - fp.getY(i), y = TOP * (1 - k) + .02;   // k: 0 at the top, 1 at the bottom
+      fp.setXYZ(i, cx + fp.getX(i) * (1 + k * .9), y, surface(Math.max(y, .12)) + (k > .97 ? .2 : 0));
+    }
+    g.add(new THREE.Mesh(fg, cascadeMat));
+    // boulders where the spring starts and where it lands
+    const stone = soft('#8f8a80');
+    const sTop = surface(TOP);
+    for (const [x, y, z, s] of [[-.42, TOP - .05, sTop + .02, .2], [.4, TOP - .1, sTop + .03, .17], [-.6, .08, surface(.12) + .25, .22], [.62, .06, surface(.12) + .2, .18], [.25, .02, surface(.12) + .55, .12]]) {
+      const b = ball(g, s, stone, cx + x, y, z, 1); b.scale.set(1.2, .75, 1);
+    }
     scene.add(g);
-    return new THREE.Vector3(cx, .02, surface(.15) + .2);
+    return new THREE.Vector3(cx, .02, surface(.12) + .25);
   }
   const springFoot = makeMountain();
 
@@ -2817,9 +2868,9 @@
       }
     }
     // spray where the mountain stream lands in the lake
-    if (!reduceMotion && Math.random() < dt * 6) {
-      puff(new THREE.Vector3(springFoot.x + (Math.random() - .5) * .6, .05, springFoot.z + Math.random() * .2),
-        { vel: new THREE.Vector3((Math.random() - .5) * .2, .3, .2), size: .3, grow: 1.6, life: 1.3, alpha: .5 });
+    if (!reduceMotion && Math.random() < dt * 9) {
+      puff(new THREE.Vector3(springFoot.x + (Math.random() - .5) * .9, .05, springFoot.z + Math.random() * .3),
+        { vel: new THREE.Vector3((Math.random() - .5) * .3, .28, .25), size: .32, grow: 1.8, life: 1.4, alpha: .45 });
     }
     // mist where the river falls off the island
     mistT -= dt;
