@@ -442,6 +442,9 @@
   /* materials */
   const MATS = {};
   const mat = c => MATS[c] || (MATS[c] = new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, metalness: 0, flatShading: true }));
+  // smooth-shaded: for round, soft things like tree tops and people
+  const SOFTS = {};
+  const soft = c => SOFTS[c] || (SOFTS[c] = new THREE.MeshStandardMaterial({ color: c, roughness: 0.75, metalness: 0 }));
   const winMat = new THREE.MeshStandardMaterial({ color: 0x9fd3ff, roughness: 0.3, emissive: 0xffc86b, emissiveIntensity: 0 });
   const lightMat = new THREE.MeshStandardMaterial({ color: 0xfff3c4, roughness: 0.4, emissive: 0xffd36b, emissiveIntensity: 0 });
   // shimmering water: three moving waves make soft colour bands and little sparkles
@@ -473,6 +476,8 @@
       }`,
   });
   const asMat = m => (typeof m === 'string' ? mat(m) : m);
+  const cA = new THREE.Color(), cB = new THREE.Color();
+  const mixHex = (a, b, k) => '#' + cA.set(a).lerp(cB.set(b), k).getHexString();
 
   function mesh(geo, m) {
     const o = new THREE.Mesh(geo, asMat(m));
@@ -512,6 +517,7 @@
   // Merge a model's plain coloured parts into one mesh (and window / light parts into one each),
   // so a house costs 2-3 draw calls instead of ~15. Parts named in userData stay separate so they can move.
   const vcMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .85, metalness: 0, flatShading: true });
+  const vcSoft = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .75, metalness: 0 });
   const _m4 = new THREE.Matrix4(), _inv = new THREE.Matrix4();
   function bake(g) {
     g.updateMatrixWorld(true);
@@ -522,7 +528,7 @@
     g.traverse(o => {
       if (!o.isMesh || keep.has(o) || !o.material.isMeshStandardMaterial) return;   // signs, water, glows stay as they are
       const m = o.material;
-      const key = m === winMat || m === lightMat ? m : vcMat;
+      const key = m === winMat || m === lightMat ? m : m.flatShading ? vcMat : vcSoft;
       const geo = (o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone()).applyMatrix4(_m4.multiplyMatrices(_inv, o.matrixWorld));
       if (!buckets.has(key)) buckets.set(key, []);
       buckets.get(key).push({ geo, color: m.color });
@@ -532,7 +538,7 @@
     for (const [material, parts] of buckets) {
       let n = 0;
       for (const p of parts) n += p.geo.attributes.position.count;
-      const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = material === vcMat ? new Float32Array(n * 3) : null;
+      const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = material.vertexColors ? new Float32Array(n * 3) : null;
       let off = 0;
       for (const p of parts) {
         const a = p.geo.attributes, c = a.position.count;
@@ -598,16 +604,32 @@
   const poolGeo = new THREE.PlaneGeometry(1.9, 1.9);
 
   /* ---------- models (front faces +z, 1 unit = 1 tile) ---------- */
-  const WALLS = ['#ffd6a5', '#fdf0a0', '#c8f5b8', '#a8e6f5', '#f7c6f0', '#ffb3b3', '#f3f3f3', '#d9c8ff'];
-  const ROOFS = ['#e05a47', '#3d6fb6', '#7a4e9e', '#2f8f6b', '#c4573a', '#5a5f6e'];
+  // creamy walls and bright toy roofs
+  const WALLS = ['#fff4de', '#ffe8c2', '#fdf3e7', '#ffe1cf', '#e8f4ff', '#fff7c8', '#effbe4', '#ffe9f2'];
+  const ROOFS = ['#e8553f', '#f4b63a', '#3f7fd9', '#e8553f', '#5aa7e8', '#e7703f'];
   const FAMILIES = ['Rivera', 'Khan', 'Smith', 'Okafor', 'Lee', 'Patel', 'Novak', 'Garcia', 'Sato', 'Haddad', 'Jones', 'Ahmed', 'Rossi', 'Kim', 'Silva', 'Brown'];
 
+  // a white picket fence round the front garden, with a gap for the path
+  function fence(g) {
+    const c = '#fbfaf4', e = .46;
+    const run = (x0, z0, x1, z1) => {
+      const len = Math.hypot(x1 - x0, z1 - z0), n = Math.max(1, Math.round(len / .085));
+      for (let i = 0; i <= n; i++) box(g, .022, .1, .022, c, x0 + (x1 - x0) * i / n, 0, z0 + (z1 - z0) * i / n);
+      box(g, x0 === x1 ? .014 : len, .016, x0 === x1 ? len : .014, c, (x0 + x1) / 2, .055, (z0 + z1) / 2);
+    };
+    run(-e, e, -.16, e); run(.16, e, e, e);
+    run(-e, -.05, -e, e); run(e, -.05, e, e);
+  }
   function makeHouse(r) {
     const g = new THREE.Group();
     const wall = pick(r, WALLS), roof = pick(r, ROOFS);
     box(g, .64, .44, .6, wall);
-    gable(g, .8, .72, .32, roof, .44);
+    gable(g, .84, .76, .32, roof, .44);
+    const attic = cyl(g, .055, .055, .02, winMat, 0, 0, 0, 14);
+    attic.rotation.x = Math.PI / 2; attic.position.set(0, .56, .3);
+    box(g, .19, .29, .02, '#ffffff', 0, 0, .296);
     box(g, .15, .25, .03, '#7a4b2a', 0, 0, .3);
+    fence(g);
     box(g, .14, .14, .03, winMat, -.19, .2, .3);
     box(g, .14, .14, .03, winMat, .19, .2, .3);
     box(g, .03, .14, .14, winMat, .32, .2, 0);
@@ -628,6 +650,7 @@
     const wall = pick(r, WALLS), roof = pick(r, ROOFS);
     box(g, .58, .4, .58, wall);
     cone(g, .5, .4, roof, 0, .4, 0, 4).rotation.y = Math.PI / 4;
+    fence(g);
     box(g, .15, .24, .03, '#6b3f22', 0, 0, .29);
     const rw = cyl(g, .07, .07, .03, winMat, 0, 0, 0, 12);
     rw.rotation.x = Math.PI / 2; rw.position.set(.18, .25, .3);
@@ -755,16 +778,20 @@
     sign(g, name, '#ffffff', acc, .56, .1, 0, .49, .36);
     return g;
   }
+  // round, fluffy trees: a big soft ball, a ring of smaller ones and a sunny top
   function makeTree(r) {
     const g = new THREE.Group();
-    cyl(g, .05, .07, .3, '#8a5a3b', 0, 0, 0, 6);
-    const c = pick(r, ['#4caf50', '#66bb3a', '#3e9d4f', '#7cc242']);
-    const s = .28 + r() * .08;
-    ball(g, s, c, 0, .3 + s * .8, 0);
-    ball(g, s * .7, c, s * .5, .3 + s * .5, r() * .2 - .1);
+    cyl(g, .045, .065, .32, '#9a6a45', 0, 0, 0, 8);
+    const [c, sunny] = pick(r, [['#4fb548', '#7fd35c'], ['#46a84d', '#6cc95a'], ['#5cbf4a', '#8bd462'], ['#3f9f55', '#62c46c']]);
+    const s = .26 + r() * .07, y = .32 + s * .75;
+    ball(g, s, soft(c), 0, y, 0, 1);
+    for (let i = 0; i < 4; i++) {
+      const a = i / 4 * Math.PI * 2 + r();
+      ball(g, s * (.62 + r() * .12), soft(c), Math.cos(a) * s * .62, y - s * .2 + r() * s * .3, Math.sin(a) * s * .62, 1);
+    }
+    ball(g, s * .58, soft(sunny), -s * .15, y + s * .48, s * .2, 1);
     g.rotation.y = r() * 6.28;
-    ball(g, s * .62, pick(r, ['#5cb85c', '#4aa64f', '#86c94a', '#3f9a45']), -s * .45, .3 + s * .62, r() * .2 - .1);
-    if (r() < .35) for (let i = 0; i < 3; i++) ball(g, .04, '#e53935', (r() - .5) * s * 1.2, .3 + s * (.5 + r() * .7), s * .75);
+    if (r() < .35) for (let i = 0; i < 3; i++) ball(g, .04, soft('#e53935'), (r() - .5) * s * 1.2, y + (r() - .3) * s * .8, s * .9, 1);
     g.userData.sway = r() * 6.28;
     return g;
   }
@@ -827,13 +854,35 @@
   }
   function makeLamp() {
     const g = new THREE.Group();
-    cyl(g, .06, .07, .05, '#3c4450', 0, 0, 0, 8);
-    cyl(g, .022, .028, .7, '#3c4450', 0, 0, 0, 6);
-    box(g, .16, .025, .025, '#3c4450', .06, .68, 0);
-    ball(g, .055, lightMat, .13, .64, 0, 1);
+    const c = '#2f3b52';
+    cyl(g, .07, .08, .06, c, 0, 0, 0, 10);
+    cyl(g, .024, .03, .62, c, 0, .06, 0, 8);
+    cyl(g, .05, .035, .05, c, 0, .66, 0, 10);
+    ball(g, .078, lightMat, 0, .78, 0, 2);
+    cone(g, .05, .05, c, 0, .84, 0, 10);
     const pool = new THREE.Mesh(poolGeo, poolMat);
-    pool.rotation.x = -Math.PI / 2; pool.position.set(.13, .04, 0);
+    pool.rotation.x = -Math.PI / 2; pool.position.set(0, .04, 0);
     g.add(pool);
+    return g;
+  }
+  function makeBench(r) {
+    const g = new THREE.Group();
+    const wood = pick(r, ['#c98a4b', '#b8743d', '#3f7fd9', '#e8553f']), iron = '#2f3b52';
+    for (const x of [-.25, .25]) { box(g, .04, .12, .2, iron, x, 0, 0); box(g, .04, .16, .03, iron, x, .12, -.09); }
+    for (const z of [-.05, .02, .09]) box(g, .64, .025, .06, wood, 0, .12, z);
+    for (const y of [.18, .245]) box(g, .64, .045, .02, wood, 0, y, -.1);
+    return g;
+  }
+  function makeFountain() {
+    const g = new THREE.Group();
+    const stone = '#ddd7cc', dark = '#c4bdb0';
+    cyl(g, .44, .46, .12, soft(stone), 0, 0, 0, 28);
+    cyl(g, .38, .38, .02, waterMat, 0, .105, 0, 28);
+    cyl(g, .07, .09, .28, soft(dark), 0, .1, 0, 14);
+    cyl(g, .17, .06, .07, soft(stone), 0, .36, 0, 18);
+    cyl(g, .14, .14, .01, waterMat, 0, .425, 0, 18);
+    cyl(g, .022, .032, .1, soft(dark), 0, .42, 0, 8);
+    g.userData.spray = new THREE.Vector3(0, .52, 0);
     return g;
   }
   function makeCar(r, variant) {
@@ -903,22 +952,76 @@
     g.userData.siren = [box(g, .06, .03, .04, '#ff3b30', -.05, .19, .22), box(g, .06, .03, .04, '#2979ff', .05, .19, .22)];
     return g;
   }
-  function makePerson(r, scale) {
+  /* residents: a big round head with a kind face, a hoodie, and arms and legs on joints so they can walk and wave */
+  const SKINS = ['#f6d0b1', '#eab68f', '#d39b6f', '#a8714a', '#7a4e32', '#ffe0c4'];
+  const HAIRS = ['#6b3a1e', '#3b2a20', '#1c1c1c', '#c68b3c', '#e7c46b', '#a0401c'];
+  const CLOTHES = ['#e8553f', '#3f7fd9', '#f4b63a', '#8a5cd6', '#21b07a', '#ff7a3d', '#ff6fa5', '#2bb3c0'];
+  const PANTS = ['#2f5fa8', '#34495e', '#6d4c41', '#3d7a5a', '#4a4a6a'];
+  const hitMat = new THREE.MeshBasicMaterial({ visible: false });
+  const hitGeo = new THREE.BoxGeometry(.32, .5, .32);
+  function makeResident(r, { kid = false, royal = false } = {}) {
     const g = new THREE.Group();
-    const skin = pick(r, ['#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#ffdbac']);
-    const shirt = pick(r, ['#e63946', '#3a86ff', '#ffbe0b', '#8338ec', '#06d6a0', '#fb5607', '#ff70a6']);
-    const pants = pick(r, ['#2b4c7e', '#3a3a3a', '#6d4c41', '#455a64']);
-    const hair = pick(r, ['#3b2a20', '#1c1c1c', '#c68b3c', '#e7c46b', '#8a3b12']);
-    box(g, .035, .09, .04, pants, -.025, 0, 0);
-    box(g, .035, .09, .04, pants, .025, 0, 0);
-    box(g, .1, .11, .06, shirt, 0, .09, 0);
-    box(g, .025, .09, .03, shirt, -.065, .1, 0);
-    box(g, .025, .09, .03, shirt, .065, .1, 0);
-    ball(g, .055, skin, 0, .255, 0, 1);
-    ball(g, .058, hair, 0, .275, -.01, 1).scale.set(1, .7, 1);
-    box(g, .012, .012, .005, '#222222', -.02, .25, .052);
-    box(g, .012, .012, .005, '#222222', .02, .25, .052);
-    g.scale.setScalar(scale);
+    const skin = soft(pick(r, SKINS)), hair = soft(pick(r, HAIRS));
+    const top = royal ? '#8a3fd1' : pick(r, CLOTHES), pants = soft(pick(r, PANTS));
+    const legH = kid ? .07 : .095, bodyH = kid ? .1 : .12, headR = kid ? .088 : .08;
+    const hipY = legH + .02, shY = hipY + bodyH - .025;
+    // legs swing from the hips, arms from the shoulders; each is baked on its own so it can move
+    const legs = [-1, 1].map(sd => {
+      const p = new THREE.Group(); p.position.set(sd * .026, hipY, 0); g.add(p);
+      cyl(p, .021, .02, legH, pants, 0, -legH, 0, 8);
+      ball(p, .026, soft('#ffffff'), 0, -legH - .004, .012, 0).scale.set(1, .6, 1.35);
+      return bake(p);
+    });
+    cyl(g, .048, .058, bodyH, soft(top), 0, hipY - .01, 0, 14);
+    ball(g, .05, soft(top), 0, shY + .01, 0, 1).scale.set(1.18, .55, 1.05);
+    ball(g, .034, soft(top), 0, shY, -.042, 0).scale.set(1.3, .75, .8);                // hood
+    box(g, .056, .024, .012, mixHex(top, '#000000', .18), 0, hipY + .018, .052);       // pocket
+    for (const sd of [-1, 1]) box(g, .005, .036, .005, '#ffffff', sd * .012, shY - .045, .056);   // hood strings
+    const arms = [-1, 1].map(sd => {
+      const p = new THREE.Group(); p.position.set(sd * .066, shY, 0); p.rotation.z = sd * .15; g.add(p);
+      cyl(p, .017, .016, .075, soft(top), 0, -.075, 0, 8);
+      ball(p, .02, skin, 0, -.086, 0, 0);
+      return bake(p);
+    });
+    const head = new THREE.Group(); head.position.set(0, shY + .02, 0); g.add(head);
+    const hy = headR * .95, ez = headR * .86;
+    ball(head, headR, skin, 0, hy, 0, 2);
+    for (const sd of [-1, 1]) ball(head, .02, skin, sd * headR, hy - .006, 0, 0);
+    const style = Math.floor(r() * 4);
+    if (style === 3) {   // a cap
+      const capC = soft(royal ? '#ffd23f' : pick(r, CLOTHES));
+      ball(head, headR * 1.05, capC, 0, hy + headR * .22, -headR * .05, 2).scale.set(1, .6, 1);
+      box(head, headR * 1.2, .008, headR * .8, capC, 0, hy + headR * .38, headR * .8);
+    } else {
+      ball(head, headR * 1.07, hair, 0, hy + headR * .2, -headR * .12, 2).scale.set(1, .8, 1);
+      if (style === 0) for (const x of [-.035, 0, .035]) ball(head, .03, hair, x, hy + headR * .66, headR * .58, 1);
+      if (style === 1) ball(head, .036, hair, 0, hy + headR * 1.02, -headR * .45, 1);
+      if (style === 2) for (const sd of [-1, 1]) ball(head, .03, hair, sd * headR * .98, hy - .012, -headR * .32, 1);
+    }
+    for (const sd of [-1, 1]) ball(head, .015, soft('#ff9e9e'), sd * .048, hy - .022, ez, 0).scale.set(1, .6, .4);
+    const smile = mesh(new THREE.TorusGeometry(.017, .0045, 6, 12, Math.PI), soft('#5a2a1a'));
+    smile.rotation.z = Math.PI; smile.position.set(0, hy - .024, headR * .96);
+    head.add(smile);
+    if (royal) {
+      cyl(head, .046, .05, .03, '#ffd23f', 0, hy + headR * .82, 0, 10);
+      for (let i = 0; i < 5; i++) { const a = i / 5 * Math.PI * 2; cone(head, .012, .03, '#ffd23f', Math.sin(a) * .045, hy + headR * .82 + .03, Math.cos(a) * .045, 4); }
+      ball(head, .009, '#e53935', 0, hy + headR * .82 + .015, .05);
+    }
+    // eyes blink, so they get a mesh of their own too
+    const eyes = new THREE.Group(); eyes.position.set(0, hy + .006, 0); head.add(eyes);
+    for (const sd of [-1, 1]) {
+      ball(eyes, .021, soft('#ffffff'), sd * .032, 0, ez, 1).scale.set(1, 1.15, .5);
+      ball(eyes, .015, soft('#2a1d16'), sd * .032, -.002, ez + .006, 0).scale.set(1, 1.15, .5);
+      ball(eyes, .005, soft('#ffffff'), sd * .032 + .005, .006, ez + .013, 0);
+    }
+    bake(eyes);
+    eyes.traverse(o => { o.castShadow = false; });
+    head.userData.eyes = eyes;
+    bake(head);
+    Object.assign(g.userData, { legs, arms, head, eyes });
+    // a bigger, invisible target so small fingers can tap them
+    const hit = new THREE.Mesh(hitGeo, hitMat); hit.position.y = .24; hit.castShadow = false; g.add(hit);
+    g.scale.setScalar(kid ? 1.1 : 1.25);
     return g;
   }
   function makeCat(r) {
@@ -984,13 +1087,15 @@
     palm:     { label: 'Palm Tree', icon: '🌴', cat: 'nature', kind: 'build', make: makePalm },
     flowers:  { label: 'Flowers', icon: '🌷', cat: 'nature', kind: 'build', make: makeFlowers, walk: true },
     pond:     { label: 'Duck Pond', icon: '🦆', cat: 'nature', kind: 'build', make: makePond },
+    fountain: { label: 'Fountain', icon: '⛲', cat: 'nature', kind: 'build', make: makeFountain },
+    bench:    { label: 'Bench', icon: '🪑', cat: 'nature', kind: 'build', make: makeBench },
     road:     { label: 'Road', icon: '🛣️', cat: 'roads', kind: 'road' },
     car:      { label: 'Car', icon: '🚗', cat: 'roads', kind: 'mover', vehicle: true, speed: 1.4, make: r => makeCar(r) },
     police:   { label: 'Police Car', icon: '🚓', cat: 'roads', kind: 'mover', vehicle: true, speed: 1.6, make: r => makeCar(r, 'police') },
     bus:      { label: 'Bus', icon: '🚌', cat: 'roads', kind: 'mover', vehicle: true, speed: 1.0, make: makeBus },
     lamp:     { label: 'Street Lamp', icon: '💡', cat: 'roads', kind: 'build', make: makeLamp },
-    kid:      { label: 'Kid', icon: '🧒', cat: 'people', kind: 'mover', speed: .75, make: r => makePerson(r, 1.15), person: true },
-    adult:    { label: 'Grown-up', icon: '🧑', cat: 'people', kind: 'mover', speed: .6, make: r => makePerson(r, 1.45), person: true },
+    kid:      { label: 'Kid', icon: '🧒', cat: 'people', kind: 'mover', speed: .75, make: r => makeResident(r, { kid: true }), person: true },
+    adult:    { label: 'Grown-up', icon: '🧑', cat: 'people', kind: 'mover', speed: .6, make: r => makeResident(r), person: true },
     dog:      { label: 'Dog', icon: '🐕', cat: 'people', kind: 'mover', speed: 1.1, make: makeDog, pet: true },
     cat:      { label: 'Cat', icon: '🐈', cat: 'people', kind: 'mover', speed: .8, make: makeCat, pet: true },
     bird:     { label: 'Bird', icon: '🐦', cat: 'people', kind: 'mover', speed: .9, make: makeBird, pet: true },
@@ -1015,8 +1120,10 @@
     flowers: 'Bees and butterflies love flowers.',
     pond: 'The duck loves to swim here.',
     lamp: 'It lights up the street at night.',
+    fountain: 'Splash! Make a wish and listen to the water.',
+    bench: 'A comfy place to sit and say hello.',
   };
-  const TOPS = { house: .9, cottage: .9, flats: 1.8, castle: 1.9, school: 1.3, hospital: 1.2, fire: 1.2, shop: .8, tree: 1.05, pine: 1.05, palm: 1.1, flowers: .35, pond: .35, lamp: .95 };
+  const TOPS = { house: .9, cottage: .9, flats: 1.8, castle: 1.9, school: 1.3, hospital: 1.2, fire: 1.2, shop: .8, tree: 1.05, pine: 1.05, palm: 1.1, flowers: .35, pond: .35, lamp: .95, fountain: .8, bench: .45 };
   const CATS = [
     ['homes', '🏠', 'Homes'],
     ['town', '🏫', 'Town'],
@@ -1110,12 +1217,12 @@
   for (let i = 0; i < 9; i++) {
     const g = new THREE.Group();
     const n = 3 + (i % 3);
-    for (let j = 0; j < n; j++) ball(g, .5 + Math.random() * .5, '#ffffff', j * .65 - n * .32, Math.random() * .3, (Math.random() - .5) * .7, 1);
+    for (let j = 0; j < n; j++) ball(g, .5 + Math.random() * .5, soft('#ffffff'), j * .65 - n * .32, Math.random() * .3, (Math.random() - .5) * .7, 1);
     g.position.set(Math.random() * 80 - 40, 6 + Math.random() * 2.5, Math.random() * 44 - 22);   // below the camera
     g.userData.speed = .25 + Math.random() * .35;
     bake(g);
     // each cloud gets its own material so it can fade out when it drifts in front of the camera
-    g.userData.mat = vcMat.clone();
+    g.userData.mat = vcSoft.clone();
     g.userData.mat.transparent = true;
     g.traverse(o => { if (o.isMesh) o.material = g.userData.mat; });
     scene.add(g); clouds.push(g);
@@ -1175,6 +1282,7 @@
   const BRIDGE_LIFT = .07;   // bridge decks sit higher than roads
 
   const roadGeo = new THREE.BoxGeometry(1, .03, 1);
+  const ROAD = '#767d89', PAVE = '#ece6d9', KERB = '#cfc7b6';
   // Roads look at their neighbours: centre lines on straight bits, zebra crossings at junctions,
   // pavements on open sides, and a wooden bridge with railings over water.
   function buildRoad(x, z) {
@@ -1195,19 +1303,20 @@
       for (const [cx, cz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) cyl(g, .05, .06, .3, '#9aa0a8', cx * .38, -.28, cz * .38, 8);
       return bake(g);
     }
-    box(g, 1, .03, 1, '#555b67');
+    box(g, 1, .03, 1, ROAD);
     DIRS.forEach(([dx, dz], i) => {
       if (!con[i]) {
-        box(g, dx ? .14 : 1, .05, dz ? .14 : 1, '#d9dbe0', dx * .43, 0, dz * .43);
+        box(g, dx ? .16 : 1, .05, dz ? .16 : 1, PAVE, dx * .42, 0, dz * .42);
+        box(g, dx ? .02 : 1, .056, dz ? .02 : 1, KERB, dx * .345, 0, dz * .345);
       } else if (n >= 3) {
-        for (let k = -2; k <= 2; k++) box(g, dx ? .14 : .07, .006, dz ? .14 : .07, '#f4f4f4', dx ? dx * .36 : k * .14, .03, dz ? dz * .36 : k * .14);
+        for (let k = -2; k <= 2; k++) box(g, dx ? .14 : .07, .006, dz ? .14 : .07, '#f7f7f2', dx ? dx * .36 : k * .14, .03, dz ? dz * .36 : k * .14);
       } else {
-        box(g, dx ? .26 : .05, .006, dz ? .26 : .05, '#ffd84a', dx * .32, .03, dz * .32);
+        box(g, dx ? .24 : .045, .006, dz ? .24 : .045, '#f7f7f2', dx * .3, .03, dz * .3);
       }
     });
     // little pavement corners where two roads meet
     for (const [cx, cz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
-      if (con[cx > 0 ? 0 : 1] && con[cz > 0 ? 2 : 3]) box(g, .14, .05, .14, '#d9dbe0', cx * .43, 0, cz * .43);
+      if (con[cx > 0 ? 0 : 1] && con[cz > 0 ? 2 : 3]) box(g, .16, .05, .16, PAVE, cx * .42, 0, cz * .42);
     }
     return bake(g);
   }
@@ -1251,9 +1360,9 @@
     if (o.type === 'road') DIRS.forEach(([dx, dz]) => refreshRoad(o.x + dx, o.z + dz));
   }
 
-  function addMover(type, x, z, seed, animate = true) {
+  function addMover(type, x, z, seed, animate = true, make = it => it.make) {
     const it = ITEMS[type];
-    const g = bake(it.make(rngSeed(seed)));
+    const g = bake(make(it)(rngSeed(seed)));
     const m = {
       type, seed, g, it,
       from: { x, z }, to: { x, z }, t: 1,
@@ -1261,9 +1370,11 @@
       wait: Math.random() * 1.5, jump: 0, phase: Math.random() * 6.28,
       off: it.vehicle ? 0 : (Math.random() - .5) * .3,
       pos: tileWorld(x, z), yaw: Math.random() * 6.28,
+      base: g.scale.x, state: 'out', waveT: 0, walkK: 0, blink: Math.random() * 3,
     };
     g.position.copy(m.pos);
     g.rotation.y = m.yaw;
+    if (perf.low && it.person) g.traverse(o => { o.castShadow = false; });
     scene.add(g);
     movers.push(m);
     if (animate) popIn(g);
@@ -1278,11 +1389,24 @@
   const moverTile = m => (m.t < .5 ? m.from : m.to);
 
   function nextTile(m) {
+    if (m.path) {
+      const p = m.path[0];
+      if (!p) return null;
+      if (!walkable(p.x, p.z) || Math.abs(p.x - m.to.x) + Math.abs(p.z - m.to.z) !== 1) { m.path = null; return null; }   // the way got blocked: plan again
+      return m.path.shift();
+    }
     const ok = m.it.vehicle ? isRoad : walkable;
     const opts = DIRS.map(([dx, dz]) => ({ x: m.to.x + dx, z: m.to.z + dz })).filter(p => ok(p.x, p.z));
     if (!opts.length) return null;
     const fwd = opts.filter(p => !(p.x === m.from.x && p.z === m.from.z));
     if (!fwd.length) return opts[0];
+    if (m.home) {
+      const far = p => Math.max(Math.abs(p.x - m.home.x), Math.abs(p.z - m.home.z));
+      const near = fwd.filter(p => far(p) <= HOME_RANGE);
+      if (near.length) return pick(Math.random, near);
+      const closer = opts.filter(p => far(p) < far(m.to));
+      if (closer.length) return pick(Math.random, closer);
+    }
     if (m.it.vehicle) {
       const sx = 2 * m.to.x - m.from.x, sz = 2 * m.to.z - m.from.z;
       const straight = fwd.find(p => p.x === sx && p.z === sz);
@@ -1422,7 +1546,7 @@
   }
   const NAMES = {
     house: 'house', cottage: 'cottage', flats: 'block of flats', castle: 'castle', school: 'school', hospital: 'hospital',
-    fire: 'fire station', shop: 'shop', tree: 'tree', pine: 'pine tree', palm: 'palm tree', flowers: 'flowers', pond: 'duck pond', lamp: 'street lamp',
+    fire: 'fire station', shop: 'shop', tree: 'tree', pine: 'pine tree', palm: 'palm tree', flowers: 'flowers', pond: 'duck pond', lamp: 'street lamp', fountain: 'fountain', bench: 'bench',
     road: 'road', car: 'car', police: 'police car', bus: 'bus', kid: 'kid', adult: 'grown-up', dog: 'dog', cat: 'cat', bird: 'bird',
     ambulance: 'ambulance', firetruck: 'fire truck',
   };
@@ -1552,7 +1676,14 @@
       name: nameEl.value,
       night: night,
       objs: list,
-      movers: movers.filter(m => !m.temp).map(m => { const p = moverTile(m); return { t: m.type, x: p.x, z: p.z, s: m.seed }; }),
+      movers: movers.filter(m => !m.temp && !m.resident).map(m => { const p = moverTile(m); return { t: m.type, x: p.x, z: p.z, s: m.seed }; }),
+      // residents only remember their home's corner tile; the 3D people are rebuilt on load
+      residents: movers.filter(m => m.resident && m.state !== 'leave' && m.state !== 'gone').map(m => {
+        const h = m.home || (moving && moving.residents.includes(m) ? moving : null);
+        if (!h) return null;
+        const p = moverTile(m);
+        return { t: m.type, h: [h.x, h.z], s: m.seed, x: p.x, z: p.z, in: m.state === 'out' ? 0 : 1 };
+      }).filter(Boolean),
     };
   }
   let saveTimer = 0;
@@ -1580,6 +1711,15 @@
     if (data.name) nameEl.value = data.name;
     for (const o of data.objs || []) if (ITEMS[o.t]) placeObj(o.t, o.x, o.z, o.r || 0, o.s, animate);
     for (const m of data.movers || []) if (ITEMS[m.t]) addMover(m.t, m.x, m.z, m.s, animate);
+    if (Array.isArray(data.residents)) {
+      for (const r of data.residents) {
+        const o = r && Array.isArray(r.h) ? cellAt(r.h[0], r.h[1]) : null;
+        // skip anyone whose home is gone or isn't a home any more
+        if (!o || !RESIDENTS[o.type] || o.x !== r.h[0] || o.z !== r.h[1] || (r.t !== 'kid' && r.t !== 'adult')) continue;
+        if (residentsOf(o).length >= RESIDENTS[o.type] || movers.filter(m => m.resident).length >= MAX_RESIDENTS) continue;
+        addResident(o, { t: r.t, s: r.s | 0, x: r.x | 0, z: r.z | 0, inside: !!r.in || !!data.night });
+      }
+    } else for (const o of objs) moveIn(o, false);   // towns saved before residents: everyone gets a family
     setNight(!!data.night, true);
     updateStats();
   }
@@ -1601,6 +1741,7 @@
     for (const [x, z] of [[1, 6], [7, 14], [13, 1], [15, 15], [0, 0]]) o('tree', x, z);
     o('pond', 2, 1); o('flowers', 8, 14); o('flowers', 2, 12);
     o('lamp', 2, 7); o('lamp', 13, 10); o('lamp', 8, 3); o('lamp', 6, 10);
+    o('fountain', 5, 8); o('bench', 4, 8, 1); o('bench', 6, 8, 3);
     mv('car', 3, 4); mv('car', 12, 8); mv('bus', 5, 11); mv('police', 7, 7); mv('car', 10, 11);
     mv('kid', 8, 7); mv('kid', 5, 10); mv('adult', 13, 12); mv('adult', 2, 10); mv('dog', 8, 8); mv('kid', 13, 5);
 
@@ -1631,8 +1772,6 @@
     nightBtn.textContent = v ? '☀️' : '🌙';
     nightBtn.setAttribute('aria-label', v ? 'Switch to day' : 'Switch to night');
   }
-  const cA = new THREE.Color(), cB = new THREE.Color();
-  const mixHex = (a, b, k) => '#' + cA.set(a).lerp(cB.set(b), k).getHexString();
   // day -> sunset -> night: colours pass through a warm sunset on the way
   const SKY = {
     top: ['#8fd3ff', '#7d86d6', '#0f1a3d'],
@@ -1722,7 +1861,7 @@
     updateHint();
     if (it.kind !== 'erase' && it.kind !== 'look') {
       let g;
-      if (it.kind === 'road') { g = new THREE.Group(); const a = new THREE.Mesh(roadGeo, mat('#545a66')); a.position.y = .015; g.add(a); }
+      if (it.kind === 'road') { g = new THREE.Group(); const a = new THREE.Mesh(roadGeo, mat(ROAD)); a.position.y = .015; g.add(a); }
       else g = bake(it.make(rngSeed(seed)));
       ghostify(g);
       ghost = g; scene.add(g);
@@ -1739,7 +1878,7 @@
       if (!inB(x, z)) return 'edge';
       if (cells[idx(x, z)]) return 'taken';
       if (isWater(x, z)) return 'water';
-      if (movers.some(m => (m.from.x === x && m.from.z === z) || (m.to.x === x && m.to.z === z))) return 'busy';
+      if (movers.some(m => m.g.visible && ((m.from.x === x && m.from.z === z) || (m.to.x === x && m.to.z === z)))) return 'busy';
     }
     return null;
   }
@@ -1791,7 +1930,7 @@
   }
   function moverFromEvent(e) {
     setRay(e);
-    const hits = ray.intersectObjects(movers.map(m => m.g), true);
+    const hits = ray.intersectObjects(movers.filter(m => m.g.visible).map(m => m.g), true);
     if (!hits.length) return null;
     let o = hits[0].object;
     while (o && !movers.some(m => m.g === o)) o = o.parent;
@@ -1807,13 +1946,13 @@
     else if (m.type === 'dog') { sfx.woof(); if (!quiet) toast('Woof woof! 🐾', 1200); }
     else if (m.type === 'cat') { sfx.meow(); if (!quiet) toast(pick(Math.random, ['Meow! 🐱', 'Purrrr…', 'Meow meow!']), 1200); }
     else if (m.type === 'bird') { sfx.tweet(); if (!quiet) toast(pick(Math.random, ['Tweet tweet! 🐦', 'Chirp chirp!', 'Look, I can fly!']), 1200); }
-    else { sfx.hi(); if (!quiet) toast(pick(Math.random, ['Hi there! 👋', 'Wheee!', 'I love this town!', 'Hello, mayor!', 'What a nice day!']), 1400); }
+    else { sfx.hi(); m.waveT = 1.6; m.faceCam = true; if (!quiet) toast(greeting(m), 1800); }
   }
   function eraseAt(tx, tz) {
-    const ms = movers.filter(m => { const p = moverTile(m); return p.x === tx && p.z === tz; });
+    const ms = movers.filter(m => { const p = moverTile(m); return m.g.visible && p.x === tx && p.z === tz; });
     if (ms.length) { ms.forEach(removeMover); sfx.erase(); say(`Bye bye, ${nameOf(ms[0].type)}!`); changed(); return true; }
     const c = cellAt(tx, tz);
-    if (c) { removeObj(c); sfx.erase(); sayBye(c); if (c.type !== 'road') dust(c.x, c.z, c.w, c.h); changed(); return true; }
+    if (c) { removeObj(c); evictResidents(c); sfx.erase(); sayBye(c); if (c.type !== 'road') dust(c.x, c.z, c.w, c.h); changed(); return true; }
     return false;
   }
   // roads are erased and drawn by dragging, so only speak once in a while
@@ -1826,14 +1965,14 @@
   const v3 = new THREE.Vector3();
   function topOf(o) { return v3.set(o.group.position.x, TOPS[o.type] || 1, o.group.position.z).clone(); }
   // free tile next to a building, front side first
-  function nearTile(o, ok) {
+  function nearTile(o, ok, exact) {
     const a = o.rot * Math.PI / 2, fx = Math.round(Math.sin(a)), fz = Math.round(Math.cos(a));
     const cx = o.x + (o.w - 1) / 2, cz = o.z + (o.h - 1) / 2;
     const list = [];
     for (let z = o.z - 1; z <= o.z + o.h; z++) for (let x = o.x - 1; x <= o.x + o.w; x++) {
       const inside = x >= o.x && x < o.x + o.w && z >= o.z && z < o.z + o.h;
       const corner = (x === o.x - 1 || x === o.x + o.w) && (z === o.z - 1 || z === o.z + o.h);
-      if (!inside && !corner && ok(x, z)) list.push({ x, z, score: (x - cx) * fx + (z - cz) * fz + Math.random() * .1 });
+      if (!inside && !corner && ok(x, z)) list.push({ x, z, score: (x - cx) * fx + (z - cz) * fz + (exact ? 0 : Math.random() * .1) });
     }
     list.sort((p, q) => q.score - p.score);
     return list[0] || null;
@@ -1854,17 +1993,174 @@
     m.temp = true; m.life = 22; m.wait = .2; m.sirenT = 22;
     sfx.siren(); toast(msg, 2200);
   }
+  /* ---------- residents: people who live in the homes ---------- */
+  const RESIDENTS = { house: 1, cottage: 1, flats: 2, castle: 1 };
+  const MAX_RESIDENTS = 40;   // keeps big towns smooth on tablets
+  const HOME_RANGE = 4;       // how many tiles from home they wander
+  const residentsOf = o => movers.filter(m => m.home === o);
+  const doorTile = o => nearTile(o, walkable, true);
+  // just inside the front door, where people pop in and out
+  function frontPoint(o) {
+    const a = o.rot * Math.PI / 2, fx = Math.round(Math.sin(a)), fz = Math.round(Math.cos(a));
+    const depth = (fx ? o.w : o.h) / 2 - .15;
+    return new THREE.Vector3(o.group.position.x + fx * depth, .01, o.group.position.z + fz * depth);
+  }
+  // shortest walk over grass, sand and roads (breadth-first: the board is small)
+  function findPath(a, b) {
+    const start = idx(a.x, a.z), end = idx(b.x, b.z);
+    if (start === end) return [];
+    const prev = new Int32Array(N * N).fill(-1);
+    const q = [start]; prev[start] = start;
+    for (let i = 0; i < q.length && prev[end] < 0; i++) {
+      const c = q[i], cx = c % N, cz = (c / N) | 0;
+      for (const [dx, dz] of DIRS) {
+        const x = cx + dx, z = cz + dz;
+        if (!walkable(x, z) || prev[idx(x, z)] >= 0) continue;
+        prev[idx(x, z)] = c; q.push(idx(x, z));
+      }
+    }
+    if (prev[end] < 0) return null;
+    const path = [];
+    for (let c = end; c !== start; c = prev[c]) path.push({ x: c % N, z: (c / N) | 0 });
+    return path.reverse();
+  }
+  function addResident(o, { t, s, x, z, inside }) {
+    const make = it => r => makeResident(r, { kid: t === 'kid', royal: o.type === 'castle' });
+    const door = doorTile(o) || { x: o.x, z: o.z };
+    const out = !inside && walkable(x, z);
+    const m = addMover(t, out ? x : door.x, out ? z : door.z, s, false, make);
+    m.home = o; m.resident = true;
+    if (!out) { m.state = 'inside'; m.g.visible = false; m.stateT = .5 + Math.random() * 3; }
+    return m;
+  }
+  // a new home gets its people; they come out and wave when it was just built
+  function moveIn(o, greet) {
+    const n = RESIDENTS[o.type] || 0;
+    for (let i = 0; i < n; i++) {
+      if (movers.filter(m => m.resident).length >= MAX_RESIDENTS) return;
+      const t = o.type === 'flats' ? (i ? 'kid' : 'adult') : o.type === 'castle' ? 'adult' : (o.seed + i) % 2 ? 'kid' : 'adult';
+      const m = addResident(o, { t, s: o.seed * 31 + i, inside: true });
+      if (greet) { m.stateT = .6 + i * .7; m.greet = true; }
+    }
+  }
+  function comeOut(m, greet) {
+    const d = doorTile(m.home);
+    if (!d) { m.stateT = 3; return; }   // no free tile at the door: try again later
+    m.from = { ...d }; m.to = { ...d }; m.t = 1; m.path = null; m.wait = 0;
+    m.inPt = frontPoint(m.home); m.outPt = tileWorld(d.x, d.z);
+    m.pos.copy(m.inPt);
+    m.state = 'exit'; m.stateT = 0; m.greet = greet || m.greet;
+    m.g.visible = true; m.g.scale.setScalar(.001);
+  }
+  function goIn(m) {
+    m.inPt = frontPoint(m.home); m.outPt = m.pos.clone();
+    m.state = 'enter'; m.stateT = 0; m.path = null; m.goingHome = false;
+  }
+  // their home was taken away: they wave goodbye and leave
+  function evictResidents(o) {
+    for (const m of residentsOf(o)) {
+      m.home = null;
+      if (m.state !== 'out') {
+        const d = nearTile(o, walkable, true) || moverTile(m);
+        m.from = { ...d }; m.to = { ...d }; m.t = 1; m.pos.copy(tileWorld(d.x, d.z));
+        m.g.visible = true; m.g.scale.setScalar(m.base);
+      }
+      m.state = 'leave'; m.stateT = 1.6; m.waveT = 1.6; m.faceCam = true; m.path = null;
+      floatEmoji('👋', m.pos.clone().setY(.7));
+    }
+  }
+  // the resident's day: returns true when it has moved them itself this frame
+  function stepPerson(m, dt, time) {
+    if (m.waveT > 0) { m.waveT -= dt; if (m.waveT <= 0) m.faceCam = false; }
+    if (m.home && !objs.has(m.home)) m.home = null;
+    const st = m.state;
+    if (st === 'inside') {
+      if (!m.home) {
+        if (moving && moving.residents && moving.residents.includes(m)) return true;   // their house is being moved
+        m.state = 'out'; m.g.visible = true; m.g.scale.setScalar(m.base);
+        return false;
+      }
+      if (!night && (m.stateT -= dt) <= 0) comeOut(m);
+      return true;
+    }
+    if (st === 'enter' || st === 'exit') {
+      m.stateT += dt;
+      const k = Math.min(1, m.stateT / .7);
+      const [a, b] = st === 'enter' ? [m.outPt, m.inPt] : [m.inPt, m.outPt];
+      m.pos.lerpVectors(a, b, k);
+      m.yaw = Math.atan2(b.x - a.x, b.z - a.z);
+      m.g.scale.setScalar(m.base * Math.max(.001, st === 'enter' ? 1 - k * k : k));
+      m.g.position.set(m.pos.x, .01, m.pos.z); m.g.rotation.y = m.yaw;
+      animPerson(m, dt, time, true);
+      if (k < 1) return true;
+      m.g.scale.setScalar(m.base);
+      if (st === 'enter') { m.state = 'inside'; m.g.visible = false; m.stateT = .5 + Math.random() * 3.5; return true; }
+      m.state = 'out';
+      if (m.greet) { m.greet = false; m.waveT = 1.8; m.faceCam = true; m.jump = 1; sfx.hi(); }
+      else if (Math.random() < .5) { m.waveT = 1.2; m.faceCam = true; }
+      if (night) m.homeDelay = 2.5;   // came to the door at night: say hi, then back to bed
+      return true;
+    }
+    if (st === 'leave') {
+      if ((m.stateT -= dt) <= 0) { m.state = 'gone'; floatEmoji('💨', m.pos.clone().setY(.4)); removeMover(m); return true; }
+      return false;
+    }
+    // out and about: at night, head home
+    if (m.home && night && !m.goingHome) { m.goingHome = true; m.homeDelay = m.homeDelay ?? Math.random() * 2.5; }
+    if (m.goingHome) {
+      if (!night) { m.goingHome = false; m.path = null; m.homeDelay = undefined; return false; }
+      if (!m.path && (m.homeDelay -= dt) <= 0) {
+        const d = doorTile(m.home);
+        m.path = d ? findPath(m.to, d) : null;
+        if (!m.path) { m.path = []; }   // can't walk there: pop in from where they are
+        m.wait = 0;
+      }
+      if (m.path && !m.path.length && m.t >= 1) { m.homeDelay = undefined; goIn(m); return true; }
+    }
+    return false;
+  }
+  // arms and legs swing as they walk, an arm waves, the head looks around, the eyes blink
+  function animPerson(m, dt, time, walking) {
+    const u = m.g.userData;
+    m.walkK += ((walking ? 1 : 0) - m.walkK) * Math.min(1, dt * 10);
+    const sw = Math.sin(time * 11 + m.phase) * .7 * m.walkK;
+    u.legs[0].rotation.x = sw; u.legs[1].rotation.x = -sw;
+    u.arms[0].rotation.x = -sw * .8;
+    const waving = m.waveT > 0;
+    const rz = waving ? 2.6 + Math.sin(time * 14) * .35 : .15;
+    u.arms[1].rotation.z += (rz - u.arms[1].rotation.z) * Math.min(1, dt * 12);
+    u.arms[1].rotation.x = waving ? 0 : sw * .8;
+    const look = !walking && !waving ? Math.sin(time * .7 + m.phase) * .5 : 0;
+    u.head.rotation.y += (look - u.head.rotation.y) * Math.min(1, dt * 4);
+    m.blink -= dt;
+    if (m.blink < 0) m.blink = 2 + Math.random() * 3;
+    u.eyes.scale.y = m.blink < .12 ? .15 : 1;
+  }
+  function greeting(m) {
+    const h = m.home;
+    const lines = ['Hi there! 👋', 'What a nice day!', 'I love this town!', 'Hello, friend!'];
+    if (h && h.type === 'castle') return pick(Math.random, ['Hello! Welcome to my castle! 👑', 'Hi! I live in the castle! 👑']);
+    if (h) { const where = (h.group.userData.title || 'my house').replace(/^The /, 'the '); lines.push(`Hi! I live in ${where}!`, `Hi! I live in ${where}!`); }
+    return pick(Math.random, lines);
+  }
+
   function play(o) {
     const g = o.group, top = topOf(o);
     switch (o.type) {
-      case 'house': case 'cottage': case 'flats':
+      case 'house': case 'cottage': case 'flats': {
         sfx.knock(); squish(g); floatEmoji('❤️', top);
-        spawnVisitor(o, pick(Math.random, ['kid', 'adult', 'kid', 'dog']));
+        const home = residentsOf(o).find(m => m.state === 'inside');
+        if (home) comeOut(home, true);
+        else spawnVisitor(o, pick(Math.random, ['kid', 'adult', 'kid', 'dog']));
         break;
-      case 'castle':
+      }
+      case 'castle': {
         sfx.fanfare(); squish(g); floatEmoji('👑', top); floatEmoji('🎺', top, 2);
-        spawnVisitor(o, 'adult');
+        const royal = residentsOf(o).find(m => m.state === 'inside');
+        if (royal) comeOut(royal, true);
+        else spawnVisitor(o, 'adult');
         break;
+      }
       case 'school':
         sfx.bell(); floatEmoji('🔔', top);
         for (let i = 0; i < 3; i++) spawnVisitor(o, 'kid');
@@ -1900,6 +2196,14 @@
         break;
       case 'lamp':
         sfx.sparkle(); floatEmoji('✨', top, 2); squish(g);
+        break;
+      case 'fountain':
+        sfx.sparkle(); floatEmoji('💧', top, 3); floatEmoji('🪙', top);
+        toast('Make a wish! ✨', 1600);
+        break;
+      case 'bench':
+        sfx.boing(); squish(g); floatEmoji(pick(Math.random, ['😊', '📖', '🍦', '🐦']), top);
+        spawnVisitor(o, pick(Math.random, ['kid', 'adult']));
         break;
     }
   }
@@ -1956,7 +2260,8 @@
   function startMove() {
     const o = selected; if (!o) return;
     const it = ITEMS[o.type];
-    moving = { type: o.type, seed: o.seed, rot: o.rot, r0: o.rot, x: o.x, z: o.z };
+    moving = { type: o.type, seed: o.seed, rot: o.rot, r0: o.rot, x: o.x, z: o.z, residents: residentsOf(o) };
+    moving.residents.forEach(m => { m.home = null; });
     removeObj(o);
     selected = null; selHl.visible = false;
     showCard('✋', `Moving: ${o.group.userData.title || it.label}`, 'Tap a green spot to put it down.', true);
@@ -1969,6 +2274,7 @@
     const a = anchorFor(it, tx, tz, moving.rot);
     const m = moving; moving = null;
     const o = placeObj(m.type, a.x0, a.z0, m.rot, m.seed);
+    if (o) m.residents.forEach(r => { r.home = o; });
     cardEl.hidden = true;
     rebuildGhost(); sfx.place(); changed();
     if (o) squish(o.group);
@@ -1976,7 +2282,8 @@
   function cancelMove() {
     if (!moving) return;
     const m = moving; moving = null;
-    placeObj(m.type, m.x, m.z, m.r0, m.seed);
+    const o = placeObj(m.type, m.x, m.z, m.r0, m.seed);
+    if (o) m.residents.forEach(r => { r.home = o; });
     cardEl.hidden = true;
     rebuildGhost(); changed();
   }
@@ -1987,7 +2294,7 @@
   document.getElementById('cRemove').onclick = () => {
     if (!selected) return;
     const o = selected;
-    removeObj(o); closeCard(); sfx.erase(); sayBye(o); dust(o.x, o.z, o.w, o.h); changed();
+    removeObj(o); evictResidents(o); closeCard(); sfx.erase(); sayBye(o); dust(o.x, o.z, o.w, o.h); changed();
   };
   document.getElementById('cMoveTurn').onclick = () => { if (moving) { moving.rot = (moving.rot + 1) % 4; positionGhost(); sfx.road(); } };
   document.getElementById('cCancel').onclick = cancelMove;
@@ -2024,7 +2331,7 @@
       const o = placeObj(tool, a.x0, a.z0, rot, ghostSeed);
       if (o) dust(o.x, o.z, o.w, o.h);
       ghostSeed = newSeed(); rebuildGhost(); sfx.place();
-      if (o) say(`You built ${phraseOf(o.type, o.group)}!`);
+      if (o) { say(`You built ${phraseOf(o.type, o.group)}!`); moveIn(o, true); }
     } else if (it.kind === 'road') {
       placeObj('road', tx, tz, 0, 0); sfx.road();
       if (performance.now() - lastRoadTalk > 2500) { lastRoadTalk = performance.now(); say('You built a road!'); }
@@ -2197,9 +2504,10 @@
   }
   const NONE = [];
   // how fast and how high each kind bobs as it walks: [speed, height]
-  const BOB = { walk: [10, .035], dog: [14, .035], cat: [9, .02], bird: [13, .07] };
+  const BOB = { walk: [11, .018], dog: [14, .035], cat: [9, .02], bird: [13, .07] };
   function stepMover(m, dt, time) {
     if (m.life !== undefined) { m.life -= dt; if (m.life <= 0) { removeMover(m); return; } }
+    if (m.it.person && stepPerson(m, dt, time)) return;
     if (m.it.vehicle) {
       if (!isRoad(m.to.x, m.to.z) || !isRoad(m.from.x, m.from.z)) { removeMover(m); return; }
     } else if (!walkable(m.to.x, m.to.z)) {
@@ -2218,14 +2526,17 @@
           if (ahead && o.t + 1 - m.t < .55) { blocked = true; break; }
         }
       }
-      if (!blocked) {
+      if (!blocked && !(m.waveT > 0)) {
         m.t += dt * m.speed; moving = true;
       }
       if (m.t >= 1) {
         const n = nextTile(m);
         if (n) { m.from = m.to; m.to = n; m.t -= 1; }
         else { m.t = 1; moving = false; }
-        if (!m.it.vehicle && Math.random() < (m.type === 'cat' ? .35 : .18)) m.wait = .6 + Math.random() * (m.type === 'cat' ? 4 : 2.2);
+        if (!m.it.vehicle && !m.path && Math.random() < (m.type === 'cat' ? .35 : .18)) {
+          m.wait = .6 + Math.random() * (m.type === 'cat' ? 4 : 2.2);
+          if (m.it.person && Math.random() < .3) m.waveT = 1.2;   // stop, look around, and sometimes wave
+        }
       }
     }
     tmpA.copy(tileWorld(m.from.x, m.from.z));
@@ -2233,12 +2544,12 @@
     tmpP.lerpVectors(tmpA, tmpB, Math.min(m.t, 1));
     const dx = tmpB.x - tmpA.x, dz = tmpB.z - tmpA.z;
     if (dx || dz) {
-      const want = Math.atan2(dx, dz);
-      let d = want - m.yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
-      m.yaw += d * Math.min(1, dt * 9);
       if (m.it.vehicle) { tmpP.x += -dz * .2; tmpP.z += dx * .2; }
       else { tmpP.x += -dz * m.off; tmpP.z += dx * m.off; }
     } else moving = false;
+    const want = m.waveT > 0 && m.faceCam ? Math.atan2(camera.position.x - m.pos.x, camera.position.z - m.pos.z) : (dx || dz) ? Math.atan2(dx, dz) : m.yaw;
+    let turnBy = want - m.yaw; turnBy = Math.atan2(Math.sin(turnBy), Math.cos(turnBy));
+    m.yaw += turnBy * Math.min(1, dt * 9);
     m.pos.lerp(tmpP, Math.min(1, dt * 10));
     const lf = isWater(m.from.x, m.from.z) ? BRIDGE_LIFT : 0, lt = isWater(m.to.x, m.to.z) ? BRIDGE_LIFT : 0;
     let y = (m.it.vehicle ? .03 : .01) + lf + (lt - lf) * Math.min(m.t, 1);
@@ -2257,6 +2568,7 @@
     }
     m.g.position.set(m.pos.x, y, m.pos.z);
     m.g.rotation.y = m.yaw;
+    if (m.g.userData.legs) animPerson(m, dt, time, moving && m.wait <= 0);
     if (m.g.userData.siren) {
       m.sirenT = Math.max(0, (m.sirenT || 0) - dt);
       const on = (m.sirenT > 0 || nightK > .5) && Math.floor(time * 6) % 2 === 0;
@@ -2286,10 +2598,11 @@
       renderer.shadowMap.type = THREE.PCFShadowMap;
       sun.shadow.mapSize.set(1024, 1024);
       if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+      for (const m of movers) if (m.it.person) m.g.traverse(o => { o.castShadow = false; });   // people are many small meshes
       resize();
     }
   }
-  let smokeT = 0, mistT = 0;
+  let smokeT = 0, mistT = 0, sprayT = 0;
   function ambient(dt, time) {
     waterUniforms.uTime.value = time;
     // chimney smoke from a random house now and then
@@ -2302,6 +2615,16 @@
         const h = homes[Math.floor(Math.random() * homes.length)];
         puff(h.group.localToWorld(h.group.userData.chimney.clone()),
           { vel: new THREE.Vector3(.1, .35, .04), color: 0xf2f2f2, size: .18, grow: 2.2, life: 2.6, alpha: .55 });
+      }
+    }
+    // fountains splash
+    sprayT -= dt;
+    if (sprayT <= 0 && !reduceMotion) {
+      sprayT = .1;
+      for (const o of objs) {
+        if (!o.group.userData.spray || Math.random() < .5) continue;
+        puff(o.group.localToWorld(o.group.userData.spray.clone()),
+          { vel: new THREE.Vector3((Math.random() - .5) * .5, .5, (Math.random() - .5) * .5), color: 0xdff4ff, size: .1, grow: 1.2, life: .7, alpha: .8 });
       }
     }
     // mist where the river falls off the island
