@@ -1,6 +1,6 @@
 # Tiny Town Builder
 
-A 3D town building game for kids aged 5 to 13. Build homes, a castle, a school, a hospital, shops, roads, cars and people on a big floating island with a lake, a beach and a river that tumbles off the edge, then tap things to watch them come alive.
+A 3D town building game for kids aged 5 to 13. Build homes, a castle, a school, a hospital, shops, roads, cars and people on a big island in the sea, with a mountain, a lake, and a river that runs out across a sandy beach past a little harbour full of boats, then tap things to watch them come alive.
 
 ## Play
 

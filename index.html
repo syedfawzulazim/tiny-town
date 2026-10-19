@@ -398,10 +398,12 @@
   const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
   const tileWorld = (x, z) => new THREE.Vector3(x - N / 2 + 0.5, 0, z - N / 2 + 0.5);
 
-  /* ---------- terrain: a lake with a beach in the north-east, a river running south off the edge ---------- */
+  /* ---------- terrain: a lake with a beach in the north-east, a river running south across a beach into the sea ---------- */
   const LAKE = { x: 25.5, z: 6.5, r: 3.6 };
   const MOUNT = { x: 25.5, z: 0, r: 3.2 };   // rocky tiles under the mountain behind the lake
   const riverX = z => 23 + Math.round(1.5 * Math.sin(z * .35));
+  const SEA_Y = -.32, SHORE = 3.6;               // sea level, and how far the south beach runs out before the water
+  const MOUTH_X = riverX(N - 1) + 1 - N / 2;     // where the river leaves the board
   const TERRAIN = new Array(N * N);
   for (let z = 0; z < N; z++) for (let x = 0; x < N; x++) {
     const d = Math.hypot(x + .5 - LAKE.x, z + .5 - LAKE.z);
@@ -410,6 +412,7 @@
     if (Math.hypot(x + .5 - MOUNT.x, z + .5 - MOUNT.z) < MOUNT.r) t = 'rock';
     else if (d < LAKE.r || (z > LAKE.z && (x === rx || x === rx + 1))) t = 'water';
     else if (d < LAKE.r + 1.6) t = 'sand';
+    else if (z === N - 1) t = 'sand';            // the top of the beach in the south
     TERRAIN[z * N + x] = t;
   }
   const terrainAt = (x, z) => TERRAIN[z * N + x];
@@ -467,15 +470,37 @@
         gl_FragColor = vec4(c, 1.0);
       }`,
   });
-  const fallMat = new THREE.ShaderMaterial({
-    uniforms: waterUniforms, vertexShader: WATER_VS, transparent: true, side: THREE.DoubleSide,
-    fragmentShader: `
-      uniform float uTime; uniform float uNight; varying vec2 vUv;
+  // the sea all around the island: turquoise near the shore, deep blue further out, waves breaking white on the coast.
+  // It fades into the sky with the fog, so it reaches the horizon
+  const seaMat = new THREE.ShaderMaterial({
+    fog: true,
+    uniforms: { uTime: waterUniforms.uTime, uNight: waterUniforms.uNight, fogColor: { value: new THREE.Color() }, fogNear: { value: 1 }, fogFar: { value: 2000 } },
+    vertexShader: `
+      varying vec3 vW;
+      #include <fog_pars_vertex>
       void main() {
-        float s = fract(vUv.y * 5.0 + uTime * 1.6 + sin(vUv.x * 23.0) * .15);
-        vec3 c = mix(vec3(.30, .68, .92), vec3(.92, .97, 1.0), smoothstep(.75, 1.0, s) * .7);
+        vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz;
+        vec4 mvPosition = viewMatrix * w; gl_Position = projectionMatrix * mvPosition;
+        #include <fog_vertex>
+      }`,
+    fragmentShader: `
+      uniform float uTime; uniform float uNight; varying vec3 vW;
+      #include <fog_pars_fragment>
+      void main() {
+        // how far from the coast: the island plus the beach in the south
+        vec2 q = abs(vW.xz - vec2(0., ${(SHORE / 2).toFixed(2)})) - vec2(${(N / 2).toFixed(2)}, ${(N / 2 + SHORE / 2).toFixed(2)});
+        float d = length(max(q, 0.)) + min(max(q.x, q.y), 0.);
+        float a = sin(vW.x * 1.1 + uTime * .9) + sin(vW.z * 1.5 - uTime * 1.2) + sin((vW.x - vW.z) * .8 + uTime * .6);
+        vec3 c = mix(vec3(.33, .79, .84), vec3(.15, .54, .79), smoothstep(0., 3.5, d));
+        c = mix(c, vec3(.07, .33, .60), smoothstep(5., 24., d));
+        float sp = sin(vW.x * 5.3 + uTime * 1.7) + sin(vW.z * 6.1 - uTime * 1.3) + sin((vW.x + vW.z) * 4.2 + uTime * 2.1);
+        c *= .95 + a * .025;
+        c += smoothstep(2.55, 2.95, sp) * .22 * (1. - smoothstep(10., 40., d));   // little glints of sun
+        float foam = smoothstep(1., 0., d) * (.5 + .5 * sin(d * 6. + uTime * 2.2)) + smoothstep(.3, 0., d);
+        c = mix(c, vec3(.95, .98, 1.), clamp(foam, 0., 1.) * .75);
         c = mix(c, c * vec3(.22, .28, .55), uNight);
-        gl_FragColor = vec4(c, .55 + .4 * vUv.y);
+        gl_FragColor = vec4(c, 1.0);
+        #include <fog_fragment>
       }`,
   });
   const asMat = m => (typeof m === 'string' ? mat(m) : m);
@@ -1286,16 +1311,15 @@
     const tex = new THREE.CanvasTexture(cv);
     tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
     const top = new THREE.MeshStandardMaterial({ map: tex, roughness: 1 });
-    const grassSide = mat('#57a03d'), dirt = mat('#9b6b43'), rock = mat('#836a55'), rockDark = mat('#6b5646');
+    const grassSide = mat('#57a03d'), dirt = mat('#9b6b43');
     const slab = new THREE.Mesh(new THREE.BoxGeometry(N, .14, N), [grassSide, grassSide, top, grassSide, grassSide, grassSide]);
     slab.position.y = -.07; slab.receiveShadow = true;
     scene.add(slab);
     const soil = new THREE.Mesh(new THREE.BoxGeometry(N - .1, 1, N - .1), dirt);
     soil.position.y = -.64; scene.add(soil);
-    const stone = new THREE.Mesh(new THREE.BoxGeometry(N - .5, .9, N - .5), rock);
-    stone.position.y = -1.55; scene.add(stone);
-    const under = new THREE.Mesh(new THREE.CylinderGeometry(N * .62, N * .18, 4, 8), rockDark);
-    under.position.y = -4; under.rotation.y = .3; scene.add(under);
+    const sea = new THREE.Mesh(new THREE.PlaneGeometry(700, 700), seaMat);
+    sea.rotation.x = -Math.PI / 2; sea.position.y = SEA_Y;
+    scene.add(sea);
 
     // water surface on every water tile, with a stone edge where it meets land
     const pos = [];
@@ -1318,14 +1342,59 @@
     scene.add(water);
     scene.add(bake(rim));
 
-    // the river falls off the edge of the island
-    const rx = riverX(N - 1);
-    const fall = new THREE.Mesh(new THREE.PlaneGeometry(2, 3), fallMat);
-    fall.position.set(rx + 1 - N / 2, .012 - 1.5, N / 2 + .02);
-    scene.add(fall);
-    return { x: rx + 1 - N / 2, z: N / 2 + .3 };
+    // the beach in the south: sand sloping gently into the sea, with a channel where the river runs out
+    const ease = v => { v = clamp(v, 0, 1); return v * v * (3 - 2 * v); };
+    const riverY = s => .012 + (SEA_Y - .012) * ease(s / SHORE);
+    const beachH = (x, z) => {
+      const s = z - N / 2, e = Math.max(0, Math.abs(x) - N / 2);
+      let h = -.002 - s * .085 - e * .25 + Math.sin(x * 1.7) * Math.sin(s * 2.1) * .012 * Math.min(1, s);
+      const w = 1 + s * .3, dx = Math.abs(x - MOUTH_X);
+      if (dx < w + .6) h = Math.min(h, riverY(s) - .07 + Math.max(0, dx - w) * .3);
+      return h;
+    };
+    const BW = N + 6, BD = 8;
+    const bg = new THREE.PlaneGeometry(BW, BD, BW * 4, BD * 4);
+    bg.rotateX(-Math.PI / 2); bg.translate(0, 0, N / 2 + BD / 2);
+    const bp = bg.attributes.position, bc = new Float32Array(bp.count * 3), sc = new THREE.Color();
+    const DRY = new THREE.Color('#e6cd8b'), WET = new THREE.Color('#c9aa6e'), UNDER = new THREE.Color('#b0925f');
+    for (let i = 0; i < bp.count; i++) {
+      const x = bp.getX(i), z = bp.getZ(i), h = beachH(x, z);
+      bp.setY(i, h);
+      const above = h - SEA_Y;
+      if (above < 0) sc.copy(UNDER); else sc.copy(WET).lerp(DRY, ease(above / .1));
+      sc.offsetHSL(0, 0, (Math.sin(x * 9.1) * Math.sin(z * 7.3)) * .015);
+      bc[i * 3] = sc.r; bc[i * 3 + 1] = sc.g; bc[i * 3 + 2] = sc.b;
+    }
+    bg.setAttribute('color', new THREE.BufferAttribute(bc, 3));
+    bg.computeVertexNormals();
+    const beach = new THREE.Mesh(bg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }));
+    beach.receiveShadow = true;
+    scene.add(beach);
+    // the river keeps flowing over the sand and opens out into the sea
+    const mp = [], STEPS = 24;
+    for (let i = 0; i < STEPS; i++) {
+      const s0 = i / STEPS * SHORE, s1 = (i + 1) / STEPS * SHORE;
+      const w0 = 1 + s0 * .3, w1 = 1 + s1 * .3, y0 = riverY(s0) + .004, y1 = riverY(s1) + .004, z0 = N / 2 + s0, z1 = N / 2 + s1;
+      mp.push(MOUTH_X - w0, y0, z0, MOUTH_X - w1, y1, z1, MOUTH_X + w0, y0, z0, MOUTH_X + w0, y0, z0, MOUTH_X - w1, y1, z1, MOUTH_X + w1, y1, z1);
+    }
+    const mg = new THREE.BufferGeometry();
+    mg.setAttribute('position', new THREE.Float32BufferAttribute(mp, 3));
+    mg.computeVertexNormals();
+    scene.add(new THREE.Mesh(mg, waterMat));
+    // rocks where the waves meet the cliffs on the other three sides
+    const shore = new THREE.Group(), rr = rngSeed(57), ROCKS = ['#8f887b', '#7d776b', '#9a9283'];
+    for (let i = 0; i < 110; i++) {
+      const side = i % 3, t = (rr() - .5) * (N + 1), out = N / 2 + .05 + rr() * .45;
+      const x = side === 0 ? t : side === 1 ? out : -out, z = side === 0 ? -out : t;
+      if (side === 0 && Math.abs(x - (MOUNT.x - N / 2)) < 4.5) continue;   // the mountain stands in the sea there
+      if (side !== 0 && t > N / 2 - .3) continue;                           // the beach is there
+      const b = ball(shore, .12 + rr() * .24, ROCKS[i % 3], x, SEA_Y + (rr() - .3) * .12, z, 0);
+      b.scale.set(1 + rr() * .5, .6 + rr() * .4, 1 + rr() * .5); b.rotation.y = rr() * 6;
+    }
+    scene.add(bake(shore));
+    return new THREE.Vector3(MOUTH_X, SEA_Y + .05, N / 2 + SHORE);
   }
-  const waterfall = makeBoard();
+  const riverMouth = makeBoard();
 
   /* the mountain where the lake's water starts: green, forested slopes, rock and a little snow up top,
      and a waterfall running down a gully into the lake */
@@ -1512,10 +1581,10 @@
     return g;
   }
   const birds = [];
-  for (let i = 0; i < 7; i++) {
-    const gull = i < 3;
+  for (let i = 0; i < 9; i++) {
+    const gull = i < 3 || i > 6;
     const g = makeSkyBird(gull);
-    const around = gull ? [LAKE.x - N / 2, LAKE.z - N / 2 + 2] : [(Math.random() - .5) * 12, (Math.random() - .5) * 12];
+    const around = i > 6 ? [-3, N / 2 + 4] : gull ? [LAKE.x - N / 2, LAKE.z - N / 2 + 2] : [(Math.random() - .5) * 12, (Math.random() - .5) * 12];
     Object.assign(g.userData, {
       a: Math.random() * 6.28, r: gull ? 3 + Math.random() * 3 : 5 + Math.random() * 8, h: gull ? 3.2 + Math.random() * 1.5 : 4 + Math.random() * 2.5,
       s: (gull ? .16 + Math.random() * .08 : .25 + Math.random() * .12) * (i % 2 ? 1 : -1), cx: around[0], cz: around[1],
@@ -1533,6 +1602,176 @@
   boat.add(sailMesh);
   boat.userData.sail = sailMesh;   // two-sided, so keep it out of the bake
   scene.add(bake(boat));
+
+  /* the harbour: a wooden pier on the south beach with boats tied up and a cargo ship at the end,
+     a ferry sailing round the island and a sailboat off the beach. Tap them to hear the horn */
+  const PIER = { x: -4.5, z0: N / 2 + .4, z1: N / 2 + 7 };
+  function makePier() {
+    const g = new THREE.Group(), y = .02, WOOD = ['#a8794d', '#9c6f45'], POST = '#6e4b2e';
+    for (let z = PIER.z0, i = 0; z < PIER.z1; z += .25, i++) box(g, 1, .06, .22, WOOD[i % 2], PIER.x, y, z + .11);
+    for (let x = -2.1, i = 0; x < 2.1; x += .25, i++) box(g, .22, .06, 1.4, WOOD[i % 2], PIER.x + x + .11, y, PIER.z1 + .7);
+    const posts = [];
+    for (let z = PIER.z0 + .3; z < PIER.z1; z += 1.3) posts.push([-.46, z], [.46, z]);
+    for (let x = -2; x <= 2; x += 1) posts.push([x, PIER.z1 + 1.36]);
+    posts.push([-2, PIER.z1 + .05], [2, PIER.z1 + .05]);
+    for (const [x, z] of posts) cyl(g, .06, .07, 1.25, POST, PIER.x + x, y - 1.1, z, 7);
+    // lamps, crates, a life ring and a little harbour hut
+    for (const [x, z] of [[-1.95, PIER.z1 + .1], [1.95, PIER.z1 + .1], [.42, PIER.z0 + 3.2]]) {
+      cyl(g, .03, .035, .75, '#3d4a5c', PIER.x + x, y + .06, z, 6);
+      ball(g, .09, lightMat, PIER.x + x, y + .86, z, 1);
+    }
+    for (const [x, z, c] of [[-1.2, PIER.z1 + .9, '#c98b4a'], [-1.2, PIER.z1 + .5, '#b97c3f'], [-.9, PIER.z1 + .75, '#d39a57']]) box(g, .3, .28, .3, c, PIER.x + x, y + .06, z);
+    box(g, .3, .28, .3, '#c98b4a', PIER.x - 1.2, y + .34, PIER.z1 + .7);
+    const ring = mesh(new THREE.TorusGeometry(.13, .04, 6, 14), '#ff5a4f');
+    ring.position.set(PIER.x - .52, y + .36, PIER.z0 + 1.6); ring.rotation.y = Math.PI / 2; g.add(ring);
+    const hx = PIER.x - 2.4, hz = N / 2 + .9, hy = -.06;
+    box(g, 1.3, .8, 1, '#4f86c6', hx, hy, hz);
+    box(g, 1.3, .1, 1, '#ffffff', hx, hy + .8, hz);
+    gable(g, 1.5, 1.2, .5, '#e0573f', hy + .9, hx, hz);
+    box(g, .28, .5, .04, '#7a4d2b', hx + .25, hy, hz + .5);
+    box(g, .28, .22, .04, winMat, hx - .3, hy + .35, hz + .5);
+    return bake(g);
+  }
+  scene.add(makePier());
+
+  // a boat hull from a pointed outline, sitting on the water line (bow along +x)
+  function hull(g, L, W, h, c, y, k = 1) {
+    const s = new THREE.Shape(), l = L / 2 * k, w = W / 2 * k, bow = Math.min(.9, L * .3) * k;
+    s.moveTo(-l, -w); s.lineTo(l - bow, -w); s.quadraticCurveTo(l, -w * .6, l + .08 * k, 0);
+    s.quadraticCurveTo(l, w * .6, l - bow, w); s.lineTo(-l, w); s.closePath();
+    const geo = new THREE.ExtrudeGeometry(s, { depth: h, bevelEnabled: false, curveSegments: 6 });
+    geo.rotateX(-Math.PI / 2);
+    const o = mesh(geo, c); o.position.y = y; g.add(o); return o;
+  }
+  function windows(g, x0, x1, y, w, step = .2) {
+    for (let x = x0; x <= x1 + 1e-6; x += step) box(g, .11, .09, w, winMat, x, y, 0);
+  }
+  function makeVessel(kind) {
+    const g = new THREE.Group();
+    let L = 1, W = .4;
+    if (kind === 'cargo') {
+      L = 4.4; W = 1.05;
+      hull(g, L, W, .32, '#c0392b', -.22);
+      hull(g, L, W, .34, '#2c3e66', .1);
+      hull(g, L, W, .03, '#9aa1ab', .44, .96);
+      const C = ['#e74c3c', '#f1c40f', '#3498db', '#2ecc71', '#e67e22', '#9b59b6'];
+      let i = 0;
+      for (let x = -.75; x < 1.4; x += .58) for (const z of [-.22, .22]) for (let lv = 0; lv < 2; lv++) {
+        if (lv && (i * 7) % 5 === 0) { i++; continue; }
+        box(g, .55, .3, .42, C[i++ % C.length], x, .47 + lv * .31, z);
+      }
+      box(g, .7, .82, .9, '#f4f4f0', -1.65, .47, 0);
+      box(g, .74, .05, .94, '#c9ccd2', -1.65, 1.29, 0);
+      windows(g, -1.9, -1.4, 1.1, .92, .17);
+      box(g, .09, .09, .5, winMat, -1.29, 1.1, 0);
+      cyl(g, .11, .13, .5, '#e53935', -1.85, 1.34, 0, 10);
+      cyl(g, .115, .115, .1, '#222831', -1.85, 1.79, 0, 10);
+      cyl(g, .025, .025, .7, '#d9dde3', 1.75, .47, 0, 6);
+      g.userData.funnel = new THREE.Vector3(-1.85, 1.92, 0);
+    } else if (kind === 'ferry') {
+      L = 3.6; W = .95;
+      hull(g, L, W, .3, '#c0392b', -.22);
+      hull(g, L, W, .38, '#ffffff', .08);
+      hull(g, L, W, .07, '#2f6fd6', .3, 1.005);
+      box(g, 2.5, .36, .8, '#ffffff', -.25, .46, 0);
+      box(g, 1.7, .32, .7, '#ffffff', -.45, .82, 0);
+      box(g, .6, .26, .58, '#ffffff', .05, 1.14, 0);
+      windows(g, -1.35, .85, .6, .82);
+      windows(g, -1.2, .3, .95, .72);
+      box(g, .05, .1, .5, winMat, .36, 1.24, 0);
+      for (const z of [-.43, .43]) for (const x of [-1, .1]) box(g, .32, .1, .1, '#ff8f1f', x, .74, z);
+      cyl(g, .12, .14, .42, '#e53935', -.95, 1.14, 0, 10);
+      cyl(g, .125, .125, .1, '#222831', -.95, 1.56, 0, 10);
+      g.userData.funnel = new THREE.Vector3(-.95, 1.7, 0);
+    } else if (kind === 'fishing') {
+      L = 1.3; W = .46;
+      hull(g, L, W, .14, '#2f6fd6', -.08);
+      hull(g, L, W, .14, '#ffffff', .06);
+      box(g, .38, .3, .34, '#ffffff', -.25, .2, 0);
+      box(g, .42, .04, .38, '#e0573f', -.25, .5, 0);
+      box(g, .05, .1, .3, winMat, -.05, .34, 0);
+      cyl(g, .018, .018, .65, '#d9dde3', .2, .2, 0, 6);
+      box(g, .02, .02, .5, '#d9dde3', .2, .7, 0);
+      box(g, .22, .08, .2, '#e8b04b', .35, .2, 0);
+    } else if (kind === 'row') {
+      L = .8; W = .34;
+      hull(g, L, W, .14, '#a8693f', -.06);
+      box(g, .06, .03, .28, '#d8b07a', -.1, .06, 0);
+      box(g, .06, .03, .28, '#d8b07a', .14, .06, 0);
+      for (const z of [-.2, .2]) { const oar = box(g, .5, .02, .03, '#d8b07a', -.02, .08, z); oar.rotation.y = z > 0 ? .3 : -.3; }
+    } else {   // sailboat
+      L = 1.05; W = .38;
+      hull(g, L, W, .12, '#ffffff', -.06);
+      hull(g, L, W, .04, '#2f6fd6', .06, 1.01);
+      cyl(g, .018, .018, 1.25, '#8b5a33', .08, .1, 0, 6);
+      box(g, .5, .02, .02, '#8b5a33', -.15, .25, 0);
+      const sh = new THREE.Shape(); sh.moveTo(0, 0); sh.lineTo(0, 1.05); sh.lineTo(-.48, 0); sh.closePath();
+      const sail = mesh(new THREE.ShapeGeometry(sh), new THREE.MeshStandardMaterial({ color: 0xfff6e0, side: THREE.DoubleSide, flatShading: true }));
+      sail.position.set(.06, .29, 0); g.add(sail);
+      const jib = new THREE.Shape(); jib.moveTo(0, 0); jib.lineTo(0, .85); jib.lineTo(.4, 0); jib.closePath();
+      const front = mesh(new THREE.ShapeGeometry(jib), new THREE.MeshStandardMaterial({ color: 0xff6b5a, side: THREE.DoubleSide, flatShading: true }));
+      front.position.set(.1, .27, 0); g.add(front);
+      g.userData.sail = [sail, front];
+    }
+    bake(g);
+    // small boats get a bigger, invisible target so little fingers can tap them
+    const hit = new THREE.Mesh(new THREE.BoxGeometry(L + .3, .7, W + .4), hitMat); hit.position.y = .2; g.add(hit);
+    g.rotation.order = 'YXZ';
+    return g;
+  }
+  const VESSELS = {
+    ferry: 'Toot toot! The ferry takes people across the sea.',
+    cargo: 'Toot toot! The cargo ship carries boxes from far away.',
+    fishing: 'The fishing boat goes out to catch fish!',
+    row: 'A little rowing boat. Row, row, row your boat!',
+    sail: 'The wind pushes the sailboat along. Whoosh!',
+  };
+  const vessels = [];
+  function addVessel(kind, x, z, ry, path) {
+    const g = makeVessel(kind);
+    g.position.set(x, SEA_Y, z); g.rotation.y = ry;
+    scene.add(g);
+    const v = { kind, g, x, z, ry, path, ph: Math.random() * 6, wob: 0 };
+    vessels.push(v);
+    return v;
+  }
+  addVessel('cargo', PIER.x + .2, PIER.z1 + 2.05, 0);
+  addVessel('fishing', PIER.x - 1.05, PIER.z0 + 2.4, -Math.PI / 2);
+  addVessel('fishing', PIER.x + 1.05, PIER.z0 + 4.1, Math.PI / 2);
+  addVessel('row', PIER.x - .9, PIER.z0 + 4.4, -Math.PI / 2 + .2);
+  // the ferry goes all the way round the island; the sailboat zigzags off the beach
+  addVessel('ferry', 0, 0, 0, t => [Math.cos(t * .035) * 27, 2 + Math.sin(t * .035) * 26]);
+  addVessel('sail', 0, 0, 0, t => [8 + Math.sin(t * .06) * 6, N / 2 + 6.2 + Math.sin(t * .12) * 1.1]);
+  function stepVessels(dt, time) {
+    for (const v of vessels) {
+      const g = v.g;
+      v.wob = Math.max(0, v.wob - dt * .8);
+      if (v.path) {
+        const [x, z] = v.path(time), [x2, z2] = v.path(time + .5);
+        g.position.x = x; g.position.z = z;
+        g.rotation.y = Math.atan2(-(z2 - z), x2 - x);
+      }
+      const big = v.kind === 'cargo' || v.kind === 'ferry' ? .4 : 1;
+      g.position.y = SEA_Y + Math.sin(time * 1.6 + v.ph) * .025 * big + Math.sin(v.wob * 12) * v.wob * .05;
+      g.rotation.x = Math.sin(time * 1.1 + v.ph) * .05 * big + Math.sin(v.wob * 9) * v.wob * .12;
+      g.rotation.z = Math.sin(time * .9 + v.ph * 2) * .025 * big;
+    }
+  }
+  function vesselFromEvent(e) {
+    setRay(e);
+    const hit = ray.intersectObjects(vessels.map(v => v.g), true)[0];
+    if (!hit) return null;
+    return vessels.find(v => { let o = hit.object; while (o && o !== v.g) o = o.parent; return !!o; });
+  }
+  function toot(v) {
+    v.wob = 1;
+    if (v.kind === 'cargo' || v.kind === 'ferry') sfx.horn(); else if (v.kind === 'sail') sfx.sparkle(); else sfx.toot();
+    say(VESSELS[v.kind]);
+    const f = v.g.userData.funnel;
+    if (f && !reduceMotion) for (let i = 0; i < 6; i++) {
+      puff(v.g.localToWorld(f.clone()), { vel: new THREE.Vector3((Math.random() - .5) * .2, .5 + i * .06, (Math.random() - .5) * .2), color: 0xe9e9e9, size: .2, grow: 2.4, life: 2.2 + i * .2, alpha: .6 });
+    }
+  }
   const flyGeo = new THREE.BufferGeometry();
   const fp = [];
   for (let i = 0; i < 90; i++) {
@@ -1794,6 +2033,8 @@
     erase: () => tone(600, 140, .2, 'triangle', .12),
     nope: () => tone(220, 170, .18, 'triangle', .12),
     boing: () => tone(180, 620, .28, 'sine', .14),
+    horn: () => { for (const d of [0, .75]) { tone(147, 143, .6, 'triangle', .16, d); tone(196, 190, .6, 'sawtooth', .04, d); } },
+    toot: () => { tone(520, 500, .16, 'triangle', .1); tone(520, 500, .2, 'triangle', .1, .22); },
     honk: () => { tone(420, 400, .12, 'square', .05); tone(420, 400, .14, 'square', .05, .16); },
     siren: () => { tone(700, 950, .25, 'sine', .08); tone(950, 700, .25, 'sine', .08, .25); },
     meow: () => { tone(620, 820, .12, 'sawtooth', .035); tone(820, 520, .28, 'sawtooth', .035, .12); },
@@ -2128,8 +2369,8 @@
     dy /= Math.max(.4, Math.sin(cam.pitch));
     const rx = Math.cos(cam.yaw), rz = -Math.sin(cam.yaw);
     const fx = -Math.sin(cam.yaw), fz = -Math.cos(cam.yaw);
-    cam.targetT.x = clamp(cam.targetT.x - rx * dx * s + fx * dy * s, -N / 2, N / 2);
-    cam.targetT.z = clamp(cam.targetT.z - rz * dx * s + fz * dy * s, -N / 2, N / 2);
+    cam.targetT.x = clamp(cam.targetT.x - rx * dx * s + fx * dy * s, -N / 2 - 2, N / 2 + 2);
+    cam.targetT.z = clamp(cam.targetT.z - rz * dx * s + fz * dy * s, -N / 2 - 2, N / 2 + 9);   // the beach and harbour are south
   }
 
   /* ---------- ghost preview ---------- */
@@ -2714,7 +2955,9 @@
     if (drag.pinch) { if (ptrs.size === 0) drag = null; return; }
     if (e.type === 'pointerup' && !drag.moved && !drag.painting && drag.button === 0) {
       const m = moverFromEvent(e);
+      const v = m || moving ? null : vesselFromEvent(e);
       if (m && !moving) { if (tool === 'erase') { removeMover(m); sfx.erase(); say(`Bye bye, ${nameOf(m.type)}!`); changed(); } else poke(m); }
+      else if (v) toot(v);
       else { const t = tileFromEvent(e); if (t) tapTile(t.x, t.z); }
     }
     drag = null;
@@ -2934,12 +3177,12 @@
       puff(new THREE.Vector3(springFoot.x + (Math.random() - .5) * .9, .05, springFoot.z + Math.random() * .3),
         { vel: new THREE.Vector3((Math.random() - .5) * .3, .28, .25), size: .32, grow: 1.8, life: 1.4, alpha: .45 });
     }
-    // mist where the river falls off the island
+    // little splashes where the river meets the waves
     mistT -= dt;
     if (mistT <= 0 && !reduceMotion) {
-      mistT = .12;
-      puff(new THREE.Vector3(waterfall.x + (Math.random() - .5) * 1.8, -.9 - Math.random() * .8, waterfall.z),
-        { vel: new THREE.Vector3((Math.random() - .5) * .2, .25, .35), size: .45, grow: 1.6, life: 1.6, alpha: .45 });
+      mistT = .3;
+      puff(new THREE.Vector3(riverMouth.x + (Math.random() - .5) * 4, riverMouth.y, riverMouth.z + Math.random() * .4),
+        { vel: new THREE.Vector3((Math.random() - .5) * .2, .12, .15), size: .2, grow: 1.6, life: 1.1, alpha: .5 });
     }
     for (const o of objs) {
       const u = o.group.userData;
@@ -2948,6 +3191,7 @@
     const a = time * .15, R = 1.9;
     boat.position.set(LAKE.x - N / 2 + Math.cos(a) * R, .01 + Math.sin(time * 2) * .015, LAKE.z - N / 2 + Math.sin(a) * R);
     boat.rotation.y = -a;
+    stepVessels(dt, time);
     for (const b of birds) {
       const u = b.userData;
       u.a += u.s * dt; u.t += dt;
