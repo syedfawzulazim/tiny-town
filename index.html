@@ -609,173 +609,259 @@
   const ROOFS = ['#e8553f', '#f4b63a', '#3f7fd9', '#e8553f', '#5aa7e8', '#e7703f'];
   const FAMILIES = ['Rivera', 'Khan', 'Smith', 'Okafor', 'Lee', 'Patel', 'Novak', 'Garcia', 'Sato', 'Haddad', 'Jones', 'Ahmed', 'Rossi', 'Kim', 'Silva', 'Brown'];
 
+  /* building kit: soft toy blocks, thick roofs with eaves, framed windows, doors with a step */
+  const RBOX = new Map();
+  // a box with softly rounded edges (y is the bottom)
+  function rbox(g, w, h, d, c, x = 0, y = 0, z = 0, r = .025) {
+    r = Math.min(r, w / 2 - .001, h / 2 - .001, d / 2 - .001);
+    const key = `${w},${h},${d},${r}`;
+    let geo = RBOX.get(key);
+    if (!geo) {
+      const sh = new THREE.Shape(), hw = w / 2 - r, hh = h / 2 - r;
+      sh.moveTo(-hw, -hh); sh.lineTo(hw, -hh); sh.lineTo(hw, hh); sh.lineTo(-hw, hh); sh.closePath();
+      geo = new THREE.ExtrudeGeometry(sh, { depth: d - 2 * r, bevelEnabled: true, bevelThickness: r, bevelSize: r, bevelSegments: 2, curveSegments: 1 });
+      geo.translate(0, 0, -(d - 2 * r) / 2);
+      RBOX.set(key, geo);
+    }
+    const o = mesh(geo, c); o.position.set(x, y + h / 2, z); g.add(o); return o;
+  }
+  // a thick pitched roof whose eaves hang over the walls, with rows of tiles and a ridge.
+  // The ridge runs front to back; alongX turns it for long buildings.
+  function roof(g, w, d, h, c, y, wall, alongX) {
+    if (alongX) { const p = new THREE.Group(); p.rotation.y = Math.PI / 2; g.add(p); roof(p, d, w, h, c, y, wall); return; }
+    const over = .07, T = .05, k = h / (w / 2), ang = Math.atan(k);
+    const run = w / 2 + over, L = run / Math.cos(ang), D = d + over * 2;
+    const dark = mixHex(c, '#000000', .22);
+    for (const sd of [-1, 1]) {
+      const slab = mesh(new THREE.BoxGeometry(L, T, D), c);
+      slab.rotation.z = -sd * ang;
+      slab.position.set(sd * run / 2, y + h - k * run / 2 + T / 2 / Math.cos(ang), 0);
+      for (let i = 1; i < 4; i++) {
+        const t = mesh(new THREE.BoxGeometry(.014, .008, D), dark);
+        t.position.set(-L / 2 + i * L / 4, T / 2, 0); slab.add(t);
+      }
+      g.add(slab);
+    }
+    const ridge = mesh(new THREE.CylinderGeometry(.032, .032, D + .02, 8), dark);
+    ridge.rotation.x = Math.PI / 2; ridge.position.set(0, y + h + T * .9, 0); g.add(ridge);
+    gable(g, w, d, h, wall, y);
+  }
+  // a window with a white frame, a cross and a sill, facing +z unless turned (y is its middle)
+  function win(g, w, h, x, y, z, ry = 0, shutter) {
+    const p = new THREE.Group(); p.position.set(x, y, z); p.rotation.y = ry; g.add(p);
+    box(p, w + .035, h + .035, .02, '#ffffff', 0, -(h + .035) / 2, 0);
+    box(p, w, h, .03, winMat, 0, -h / 2, 0);
+    box(p, .01, h, .036, '#ffffff', 0, -h / 2, 0);
+    box(p, w, .01, .036, '#ffffff', 0, -.005, 0);
+    box(p, w + .06, .018, .045, '#ffffff', 0, -h / 2 - .035, .012);
+    if (shutter) for (const sd of [-1, 1]) box(p, w * .42, h + .02, .014, shutter, sd * (w / 2 + w * .21 + .022), -(h + .02) / 2, 0);
+    return p;
+  }
+  // a round window
+  function porthole(g, rad, x, y, z) {
+    const ring = cyl(g, rad + .014, rad + .014, .02, '#ffffff', 0, 0, 0, 16); ring.rotation.x = Math.PI / 2; ring.position.set(x, y, z);
+    const gl = cyl(g, rad, rad, .03, winMat, 0, 0, 0, 16); gl.rotation.x = Math.PI / 2; gl.position.set(x, y, z + .003);
+  }
+  // a front door with a frame, a knob, a stone step and a little porch roof (y is the ground)
+  function door(g, w, h, c, x, z, porch) {
+    box(g, w + .04, h + .03, .02, '#ffffff', x, .04, z);
+    box(g, w, h, .03, c, x, .04, z + .004);
+    ball(g, .012, '#ffd23f', x + w * .3, .04 + h * .45, z + .022);
+    rbox(g, w + .1, .04, .09, '#d6cdb9', x, 0, z + .045, .01);
+    if (porch) rbox(g, w + .12, .025, .11, porch, x, .04 + h + .035, z + .05, .01);
+  }
+  const bush = (g, r, x, z, s = .07) => ball(g, s, soft(pick(r, ['#4fb548', '#46a84d', '#5cbf4a', '#3f9f55'])), x, s * .8, z, 1);
   // a white picket fence round the front garden, with a gap for the path
-  function fence(g) {
+  function fence(g, gap = 0) {
     const c = '#fbfaf4', e = .46;
     const run = (x0, z0, x1, z1) => {
       const len = Math.hypot(x1 - x0, z1 - z0), n = Math.max(1, Math.round(len / .085));
       for (let i = 0; i <= n; i++) box(g, .022, .1, .022, c, x0 + (x1 - x0) * i / n, 0, z0 + (z1 - z0) * i / n);
       box(g, x0 === x1 ? .014 : len, .016, x0 === x1 ? len : .014, c, (x0 + x1) / 2, .055, (z0 + z1) / 2);
     };
-    run(-e, e, -.16, e); run(.16, e, e, e);
+    run(-e, e, gap - .11, e); run(gap + .11, e, e, e);
     run(-e, -.05, -e, e); run(e, -.05, e, e);
   }
+  const SHUTTERS = ['#3f7fd9', '#2f8f6b', '#e8553f', '#8a5cd6', '#f4b63a'];
+  const STONE = '#cdbd9f';
+
   function makeHouse(r) {
     const g = new THREE.Group();
-    const wall = pick(r, WALLS), roof = pick(r, ROOFS);
-    box(g, .64, .44, .6, wall);
-    gable(g, .84, .76, .32, roof, .44);
-    const attic = cyl(g, .055, .055, .02, winMat, 0, 0, 0, 14);
-    attic.rotation.x = Math.PI / 2; attic.position.set(0, .56, .3);
-    box(g, .19, .29, .02, '#ffffff', 0, 0, .296);
-    box(g, .15, .25, .03, '#7a4b2a', 0, 0, .3);
-    fence(g);
-    box(g, .14, .14, .03, winMat, -.19, .2, .3);
-    box(g, .14, .14, .03, winMat, .19, .2, .3);
-    box(g, .03, .14, .14, winMat, .32, .2, 0);
-    box(g, .03, .14, .14, winMat, -.32, .2, 0);
-    box(g, .09, .2, .09, '#8d6e63', .18, .55, -.12);
-    box(g, .24, .03, .12, '#d8cfc0', 0, 0, .38);
+    const wall = pick(r, WALLS), roofC = pick(r, ROOFS), shut = pick(r, SHUTTERS);
+    rbox(g, .68, .05, .64, STONE, 0, 0, 0, .015);
+    rbox(g, .62, .42, .58, wall, 0, .04, 0, .02);
+    roof(g, .62, .58, .3, roofC, .46, wall);
+    door(g, .13, .24, pick(r, ['#8a5a3b', '#6b3f22', '#3f7fd9', '#2f8f6b']), -.16, .29, roofC);
+    win(g, .14, .13, .13, .3, .29, 0, shut);
+    rbox(g, .17, .04, .05, '#8d5a3b', .13, .14, .315, .01);
+    for (const dx of [-.05, 0, .05]) ball(g, .024, soft(pick(r, ['#ff5d8f', '#ffd23f', '#b388ff', '#ffffff'])), .13 + dx, .19, .32, 1);
+    for (const sd of [-1, 1]) win(g, .12, .12, sd * .31, .3, 0, sd * Math.PI / 2, shut);
+    porthole(g, .045, 0, .58, .29);
+    rbox(g, .09, .34, .09, '#b5533c', .17, .52, -.12, .012);
+    rbox(g, .12, .03, .12, '#8f3f2c', .17, .86, -.12, .01);
+    g.userData.chimney = new THREE.Vector3(.17, .92, -.12);
+    box(g, .16, .012, .1, '#e3d9c4', -.16, 0, .41);
+    bush(g, r, .38, .36); bush(g, r, -.38, .3, .06); bush(g, r, .38, -.2, .06);
+    fence(g, -.16);
     g.userData.title = `The ${pick(r, FAMILIES)} family’s house`;
-    // window sills, a flower box and a door knob
-    for (const x of [-.19, .19]) box(g, .18, .025, .05, '#ffffff', x, .185, .31);
-    box(g, .2, .05, .06, '#8d5a3b', -.19, .13, .33);
-    for (const dx of [-.06, 0, .06]) ball(g, .026, pick(r, ['#ff5d8f', '#ffd23f', '#b388ff', '#ffffff']), -.19 + dx, .2, .34);
-    box(g, .02, .02, .02, '#ffd23f', .05, .12, .315);
-    g.userData.chimney = new THREE.Vector3(.18, .8, -.12);
     return g;
   }
   function makeCottage(r) {
     const g = new THREE.Group();
-    const wall = pick(r, WALLS), roof = pick(r, ROOFS);
-    box(g, .58, .4, .58, wall);
-    cone(g, .5, .4, roof, 0, .4, 0, 4).rotation.y = Math.PI / 4;
-    fence(g);
-    box(g, .15, .24, .03, '#6b3f22', 0, 0, .29);
-    const rw = cyl(g, .07, .07, .03, winMat, 0, 0, 0, 12);
-    rw.rotation.x = Math.PI / 2; rw.position.set(.18, .25, .3);
-    box(g, .12, .12, .03, winMat, -.18, .19, .29);
-    ball(g, .08, '#3f9d48', -.27, .06, .34);
-    ball(g, .08, '#3f9d48', .27, .06, .34);
-    ball(g, .03, pick(r, ['#ff5d8f', '#ffd23f', '#b388ff']), .27, .13, .38);
+    const wall = pick(r, WALLS), roofC = pick(r, ROOFS), shut = pick(r, SHUTTERS);
+    rbox(g, .62, .05, .62, STONE, 0, 0, 0, .015);
+    rbox(g, .56, .38, .56, wall, 0, .04, 0, .02);
+    rbox(g, .72, .045, .72, mixHex(roofC, '#000000', .18), 0, .42, 0, .015);
+    cone(g, .51, .38, roofC, 0, .46, 0, 4).rotation.y = Math.PI / 4;
+    ball(g, .03, soft('#ffd23f'), 0, .86, 0, 1);
+    door(g, .13, .23, pick(r, ['#6b3f22', '#8a5a3b', '#e8553f']), -.12, .28, null);
+    porthole(g, .06, .14, .26, .28);
+    for (const sd of [-1, 1]) win(g, .11, .11, sd * .28, .27, 0, sd * Math.PI / 2, shut);
+    win(g, .12, .11, 0, .27, -.28, Math.PI);
+    box(g, .15, .012, .1, '#e3d9c4', -.12, 0, .4);
+    bush(g, r, .36, .36); bush(g, r, .2, .38, .05); bush(g, r, -.37, .34, .06);
+    fence(g, -.12);
     g.userData.title = `The ${pick(r, FAMILIES)} family’s cottage`;
     return g;
   }
   function makeFlats(r) {
     const g = new THREE.Group();
-    const c = pick(r, ['#e9d8c4', '#c9d6e8', '#e8c4c4', '#d4e8c9', '#f0e0a8']);
-    box(g, .76, 1.5, .76, c);
-    box(g, .82, .06, .82, '#6d7480', 0, 1.5, 0);
-    box(g, .2, .12, .16, '#9aa3ad', .15, 1.56, -.1);
+    const c = pick(r, ['#f1e2cc', '#dbe5f2', '#f2d7d0', '#e2efd6', '#f6e8b8']), acc = pick(r, ROOFS);
+    rbox(g, .82, .06, .82, '#b9b2a4', 0, 0, 0, .015);
+    rbox(g, .76, 1.44, .76, c, 0, .05, 0, .03);
+    for (let row = 1; row < 4; row++) rbox(g, .79, .03, .79, '#ffffff', 0, .06 + row * .36, 0, .01);
+    rbox(g, .84, .07, .84, acc, 0, 1.47, 0, .02);
+    rbox(g, .22, .12, .18, '#9aa3ad', .16, 1.54, -.12, .015);
     for (let row = 0; row < 4; row++) {
-      const y = .42 + row * .27;
+      const y = .3 + row * .36;
       for (const x of [-.18, .18]) {
-        box(g, .15, .15, .03, winMat, x, y, .38);
-        box(g, .03, .15, .15, winMat, .38, y, x);
-        box(g, .03, .15, .15, winMat, -.38, y, x);
+        if (row) {
+          win(g, .14, .15, x, y, .38);
+          box(g, .22, .02, .1, '#ffffff', x, y - .14, .43);           // balcony
+          box(g, .22, .07, .012, acc, x, y - .12, .475);
+        }
+        win(g, .14, .15, .38, y, x, Math.PI / 2);
+        win(g, .14, .15, -.38, y, x, -Math.PI / 2);
       }
     }
-    box(g, .18, .28, .03, '#4a5568', 0, 0, .38);
-    box(g, .28, .03, .12, '#6d7480', 0, .3, .43);
+    door(g, .18, .26, '#4a5568', 0, .38, acc);
+    for (const x of [-.24, .24]) win(g, .12, .12, x, .26, .38);
+    bush(g, r, -.42, .42, .05); bush(g, r, .42, .42, .05);
     g.userData.title = `${pick(r, ['Maple', 'Sunrise', 'Rainbow', 'Oak', 'Bluebell', 'Hilltop'])} Flats`;
     return g;
   }
   function makeCastle(r) {
     const g = new THREE.Group();
-    const stone = '#cfc8bb', top = pick(r, ['#5b6ee1', '#b04fb5', '#e0525b', '#2f9e8f']);
-    box(g, 1.5, .02, 1.5, '#d9cba5');
-    box(g, 1.44, .48, .12, stone, 0, 0, .72);
-    box(g, 1.44, .48, .12, stone, 0, 0, -.72);
-    box(g, .12, .48, 1.44, stone, .72, 0, 0);
-    box(g, .12, .48, 1.44, stone, -.72, 0, 0);
+    const stone = '#e3dccd', dark = '#c9bfad', top = pick(r, ['#5b6ee1', '#b04fb5', '#e8553f', '#2f9e8f']);
+    rbox(g, 1.6, .04, 1.6, '#d9cba5', 0, 0, 0, .015);
+    for (const [w, d, x, z] of [[1.44, .14, 0, .72], [1.44, .14, 0, -.72], [.14, 1.44, .72, 0], [.14, 1.44, -.72, 0]]) rbox(g, w, .48, d, stone, x, .02, z, .03);
     for (let i = -3; i <= 3; i++) {
       const p = i * .2;
-      box(g, .1, .1, .12, stone, p, .48, .72);
-      box(g, .1, .1, .12, stone, p, .48, -.72);
-      box(g, .12, .1, .1, stone, .72, .48, p);
-      box(g, .12, .1, .1, stone, -.72, .48, p);
+      rbox(g, .11, .1, .14, stone, p, .5, .72, .015); rbox(g, .11, .1, .14, stone, p, .5, -.72, .015);
+      rbox(g, .14, .1, .11, stone, .72, .5, p, .015); rbox(g, .14, .1, .11, stone, -.72, .5, p, .015);
     }
-    box(g, .32, .34, .04, '#5a3a22', 0, 0, .79);
+    // gate with an arch
+    box(g, .38, .36, .02, '#ffffff', 0, .02, .795);
+    box(g, .32, .32, .03, '#7a4b2a', 0, .02, .8);
+    const arch = cyl(g, .19, .19, .02, '#ffffff', 0, 0, 0, 16); arch.rotation.x = Math.PI / 2; arch.position.set(0, .38, .795);
+    const archIn = cyl(g, .16, .16, .03, '#7a4b2a', 0, 0, 0, 16); archIn.rotation.x = Math.PI / 2; archIn.position.set(0, .34, .8);
     for (const x of [-.75, .75]) for (const z of [-.75, .75]) {
-      cyl(g, .2, .22, .9, stone, x, 0, z);
-      cone(g, .27, .42, top, x, .9, z, 10);
-      box(g, .06, .12, .02, winMat, x, .55, z + .2);
+      cyl(g, .22, .24, .92, stone, x, 0, z, 16);
+      cyl(g, .27, .27, .06, dark, x, .9, z, 16);
+      cone(g, .3, .46, top, x, .96, z, 16);
+      ball(g, .035, soft('#ffd23f'), x, 1.44, z, 1);
+      win(g, .07, .12, x, .62, z + .23);
     }
-    box(g, .66, .95, .66, stone, 0, 0, -.05);
-    box(g, .1, .16, .03, winMat, -.15, .55, .29);
-    box(g, .1, .16, .03, winMat, .15, .55, .29);
-    cone(g, .52, .5, top, 0, .95, -.05, 4).rotation.y = Math.PI / 4;
-    cyl(g, .012, .012, .42, '#555', 0, 1.35, -.05, 6);
-    const flag = box(g, .22, .13, .01, '#ffd23f', .11, 1.62, -.05);
+    rbox(g, .7, .98, .66, stone, 0, 0, -.05, .03);
+    for (const x of [-.16, .16]) win(g, .1, .15, x, .66, .29);
+    rbox(g, .8, .05, .76, dark, 0, .98, -.05, .015);
+    cone(g, .54, .52, top, 0, 1.03, -.05, 4).rotation.y = Math.PI / 4;
+    cyl(g, .012, .012, .42, '#555', 0, 1.5, -.05, 6);
+    const flag = box(g, .22, .13, .01, '#ffd23f', .11, 1.77, -.05);
     g.userData.flag = flag;
     return g;
   }
   function makeSchool(r) {
     const g = new THREE.Group();
-    const wall = pick(r, ['#e8774f', '#f2b134', '#7fb8e0']);
-    box(g, 1.7, .6, .7, wall);
-    box(g, 1.78, .06, .78, '#f4efe6', 0, .6, 0);
-    box(g, .42, .42, .42, wall, 0, .66, 0);
-    cone(g, .36, .3, '#c0392b', 0, 1.08, 0, 4).rotation.y = Math.PI / 4;
-    const clock = cyl(g, .12, .12, .02, '#ffffff', 0, 0, 0, 16);
-    clock.rotation.x = Math.PI / 2; clock.position.set(0, .87, .22);
-    box(g, .015, .08, .01, '#222', 0, .87, .235);
-    box(g, .06, .015, .01, '#222', .03, .865, .235);
-    for (const x of [-.65, -.4, .4, .65]) {
-      box(g, .16, .18, .03, winMat, x, .22, .35);
-      box(g, .16, .18, .03, winMat, x, .22, -.35);
-    }
-    box(g, .28, .3, .03, '#5b3a29', 0, 0, .35);
-    sign(g, 'SCHOOL', '#ffffff', '#2b3a55', .5, .12, 0, .44, .37);
-    cyl(g, .012, .012, .9, '#888', .8, 0, .44, 6);
-    box(g, .18, .11, .01, '#e74c3c', .89, .76, .44);
+    const wall = pick(r, ['#f6e6c8', '#ffe7c7', '#eaf1f8']), roofC = pick(r, ['#3f7fd9', '#3f7fd9', '#e8553f']);
+    rbox(g, 1.76, .05, .76, STONE, 0, 0, 0, .015);
+    rbox(g, 1.7, .5, .7, wall, 0, .04, 0, .025);
+    roof(g, 1.7, .7, .22, roofC, .54, wall, true);
+    rbox(g, .4, .58, .4, wall, 0, .5, .1, .02);
+    rbox(g, .5, .035, .5, mixHex(roofC, '#000000', .18), 0, 1.07, .1, .012);
+    cone(g, .34, .3, roofC, 0, 1.1, .1, 4).rotation.y = Math.PI / 4;
+    const ring = cyl(g, .12, .12, .02, '#ffffff', 0, 0, 0, 20); ring.rotation.x = Math.PI / 2; ring.position.set(0, .86, .31);
+    const face = cyl(g, .1, .1, .025, '#fdfbf3', 0, 0, 0, 20); face.rotation.x = Math.PI / 2; face.position.set(0, .86, .313);
+    box(g, .014, .075, .01, '#222', 0, .86, .328);
+    box(g, .055, .014, .01, '#222', .027, .855, .328);
+    for (const x of [-.68, -.42, .42, .68]) { win(g, .17, .19, x, .32, .35); win(g, .17, .19, x, .32, -.35, Math.PI); }
+    for (const sd of [-1, 1]) win(g, .14, .17, sd * .85, .32, 0, sd * Math.PI / 2);
+    door(g, .26, .27, '#5b3a29', 0, .35, roofC);
+    sign(g, 'SCHOOL', '#ffffff', '#2b3a55', .44, .1, 0, .47, .356);
+    cyl(g, .012, .012, .9, '#888', .82, 0, .46, 6);
+    box(g, .18, .11, .01, '#e74c3c', .91, .76, .46);
+    bush(g, r, -.25, .44, .06); bush(g, r, .25, .44, .06);
     return g;
   }
   function makeHospital() {
     const g = new THREE.Group();
-    const w = '#f4f7fb', red = '#e53935';
-    box(g, 1.76, .62, .66, w);
-    box(g, .7, 1.0, .7, w);
-    for (const x of [-.75, -.55, -.35, .35, .55, .75]) for (const y of [.12, .36]) box(g, .13, .14, .03, winMat, x, y, .33);
-    box(g, .13, .14, .03, winMat, -.2, .55, .35);
-    box(g, .13, .14, .03, winMat, .2, .55, .35);
+    const w = '#f6f8fb', trim = '#dfe5ec', red = '#e53935';
+    rbox(g, 1.8, .05, .72, '#cfd6de', 0, 0, 0, .015);
+    rbox(g, 1.76, .6, .66, w, 0, .04, 0, .025);
+    rbox(g, 1.8, .045, .7, trim, 0, .64, 0, .015);
+    rbox(g, .72, .4, .7, w, 0, .64, 0, .025);
+    rbox(g, .76, .045, .74, trim, 0, 1.04, 0, .015);
+    for (const x of [-.78, -.55, .55, .78]) for (const y of [.25, .5]) win(g, .13, .13, x, y, .33);
+    for (const x of [-.22, .22]) win(g, .12, .13, x, .9, .35);
     box(g, .07, .22, .03, red, 0, .72, .36);
     box(g, .22, .07, .03, red, 0, .795, .36);
-    box(g, .3, .3, .03, winMat, 0, 0, .35);
-    box(g, .6, .04, .2, red, 0, .32, .44);
-    for (const x of [-.27, .27]) cyl(g, .015, .015, .32, '#cccccc', x, 0, .5, 6);
-    sign(g, 'HOSPITAL', '#ffffff', red, .44, .09, 0, .43, .36);
-    cyl(g, .2, .2, .02, '#3fae6a', .6, .62, 0, 16);
-    box(g, .03, .005, .14, '#ffffff', .55, .64, 0);
-    box(g, .03, .005, .14, '#ffffff', .65, .64, 0);
-    box(g, .1, .005, .03, '#ffffff', .6, .64, 0);
+    box(g, .34, .32, .02, '#ffffff', 0, .04, .33);
+    box(g, .3, .3, .03, winMat, 0, .04, .335);
+    box(g, .01, .3, .036, '#ffffff', 0, .04, .335);
+    rbox(g, .62, .04, .24, red, 0, .36, .44, .012);
+    for (const x of [-.27, .27]) cyl(g, .015, .015, .32, '#cccccc', x, .04, .52, 6);
+    sign(g, 'HOSPITAL', '#ffffff', red, .44, .09, 0, .46, .335);
+    cyl(g, .2, .2, .02, '#3fae6a', .6, .665, 0, 16);
+    box(g, .03, .005, .14, '#ffffff', .55, .685, 0);
+    box(g, .03, .005, .14, '#ffffff', .65, .685, 0);
+    box(g, .1, .005, .03, '#ffffff', .6, .685, 0);
+    rbox(g, 1.84, .045, .1, '#d6cdb9', 0, 0, .4, .01);
     return g;
   }
   function makeFire() {
     const g = new THREE.Group();
-    box(g, .8, .58, .74, '#d63c33');
-    box(g, .86, .05, .8, '#8e2a24', 0, .58, 0);
+    rbox(g, .84, .05, .78, STONE, 0, 0, 0, .015);
+    rbox(g, .8, .56, .74, '#d63c33', 0, .04, 0, .025);
+    rbox(g, .86, .05, .8, '#f4efe6', 0, .6, 0, .015);
     for (const x of [-.18, .18]) {
-      box(g, .3, .36, .03, '#f2e6d0', x, 0, .37);
-      for (let i = 0; i < 3; i++) box(g, .3, .015, .035, '#cbb99a', x, .09 + i * .1, .37);
+      box(g, .34, .4, .02, '#ffffff', x, .04, .37);
+      box(g, .3, .36, .03, '#f2e6d0', x, .04, .372);
+      for (let i = 0; i < 3; i++) box(g, .3, .015, .036, '#cbb99a', x, .13 + i * .1, .372);
     }
-    sign(g, 'FIRE', '#ffffff', '#d63c33', .42, .1, 0, .47, .38);
-    box(g, .2, .42, .2, '#b5322b', -.24, .63, -.2);
-    box(g, .26, .04, .26, '#8e2a24', -.24, 1.05, -.2);
-    ball(g, .05, '#ff3b30', .22, .68, .22);
+    sign(g, 'FIRE', '#ffffff', '#d63c33', .42, .1, 0, .52, .38);
+    rbox(g, .22, .46, .22, '#b5322b', -.24, .65, -.2, .015);
+    rbox(g, .28, .05, .28, '#8e2a24', -.24, 1.1, -.2, .015);
+    win(g, .09, .11, -.24, .92, -.09);
+    for (const sd of [-1, 1]) win(g, .12, .13, sd * .4, .35, -.05, sd * Math.PI / 2);
+    ball(g, .05, '#ff3b30', .22, .7, .22);
     return g;
   }
   function makeShop(r) {
     const g = new THREE.Group();
-    const [name, wall, acc, emoji, title] = pick(r, [['BAKERY', '#ffcdb2', '#d1495b', '🧁', 'The Bakery'], ['TOYS', '#bde0fe', '#3a86ff', '🧸', 'The Toy Shop'], ['BOOKS', '#d8f3dc', '#2d6a4f', '📚', 'The Book Shop'], ['ICE CREAM', '#ffd6ff', '#c9184a', '🍦', 'The Ice Cream Shop'], ['FRUIT', '#fff3b0', '#e09f3e', '🍎', 'The Fruit Shop']]);
+    const [name, wall, acc, emoji, title] = pick(r, [['BAKERY', '#ffd9c2', '#d1495b', '🧁', 'The Bakery'], ['TOYS', '#cfe6ff', '#3a86ff', '🧸', 'The Toy Shop'], ['BOOKS', '#dff5e3', '#2d6a4f', '📚', 'The Book Shop'], ['ICE CREAM', '#ffe0ff', '#c9184a', '🍦', 'The Ice Cream Shop'], ['FRUIT', '#fff5c2', '#e09f3e', '🍎', 'The Fruit Shop']]);
     g.userData.emoji = emoji;
     g.userData.title = title;
-    box(g, .78, .52, .7, wall);
-    box(g, .84, .05, .76, acc, 0, .52, 0);
-    box(g, .42, .24, .03, winMat, -.1, .08, .35);
-    box(g, .14, .28, .03, '#5b3a29', .24, 0, .35);
-    for (let i = 0; i < 5; i++) box(g, .16, .02, .24, i % 2 ? '#ffffff' : acc, -.32 + i * .16, .38, .44).rotation.x = .45;
-    sign(g, name, '#ffffff', acc, .56, .1, 0, .49, .36);
+    rbox(g, .82, .05, .74, STONE, 0, 0, 0, .015);
+    rbox(g, .78, .5, .7, wall, 0, .04, 0, .025);
+    rbox(g, .84, .07, .76, acc, 0, .54, 0, .02);
+    box(g, .46, .28, .02, '#ffffff', -.1, .07, .35);
+    box(g, .42, .24, .03, winMat, -.1, .09, .353);
+    box(g, .01, .24, .036, '#ffffff', -.1, .09, .353);
+    door(g, .14, .27, '#5b3a29', .25, .35, null);
+    for (let i = 0; i < 5; i++) box(g, .16, .02, .24, i % 2 ? '#ffffff' : acc, -.32 + i * .16, .4, .44).rotation.x = .45;
+    sign(g, name, '#ffffff', acc, .56, .09, 0, .495, .356);
+    for (const sd of [-1, 1]) win(g, .12, .12, sd * .39, .3, 0, sd * Math.PI / 2);
+    for (const x of [-.36, .36]) ball(g, .045, soft(acc), x, .04, .42, 1);
     return g;
   }
   // round, fluffy trees: a big soft ball, a ring of smaller ones and a sunny top
@@ -889,34 +975,40 @@
     const g = new THREE.Group();
     const police = variant === 'police';
     const c = police ? '#f5f7fa' : pick(r, ['#e63946', '#3a86ff', '#ffbe0b', '#8338ec', '#06d6a0', '#fb5607']);
-    box(g, .22, .09, .38, c, 0, .04, 0);
-    if (police) box(g, .225, .03, .2, '#1d3f8f', 0, .07, .02);
-    box(g, .19, .09, .2, c, 0, .12, -.02);
-    box(g, .196, .05, .206, winMat, 0, .145, -.02);
-    for (const x of [-.11, .11]) for (const z of [-.12, .12]) {
-      const w = cyl(g, .045, .045, .04, '#222222', 0, 0, 0, 10);
-      w.rotation.z = Math.PI / 2; w.position.set(x, .045, z);
+    rbox(g, .24, .1, .4, c, 0, .04, 0, .035);
+    if (police) box(g, .245, .03, .2, '#1d3f8f', 0, .075, .02);
+    rbox(g, .2, .1, .22, c, 0, .12, -.03, .04);
+    box(g, .205, .055, .16, winMat, 0, .145, -.03);
+    box(g, .17, .055, .225, winMat, 0, .145, -.03);
+    for (const x of [-.115, .115]) for (const z of [-.13, .13]) {
+      const w = cyl(g, .048, .048, .045, '#2b2b33', 0, 0, 0, 14);
+      w.rotation.z = Math.PI / 2; w.position.set(x, .048, z);
+      const hub = cyl(g, .022, .022, .05, '#d9dde3', 0, 0, 0, 10);
+      hub.rotation.z = Math.PI / 2; hub.position.set(x, .048, z);
     }
     for (const x of [-.07, .07]) {
-      box(g, .05, .03, .01, lightMat, x, .07, .19);
-      box(g, .04, .025, .01, '#d32f2f', x, .07, -.19);
+      const hl = cyl(g, .022, .022, .012, lightMat, 0, 0, 0, 10); hl.rotation.x = Math.PI / 2; hl.position.set(x, .095, .2);
+      box(g, .04, .025, .01, '#d32f2f', x, .08, -.2);
     }
     if (police) {
-      g.userData.siren = [box(g, .06, .03, .05, '#ff3b30', -.035, .21, -.02), box(g, .06, .03, .05, '#2979ff', .035, .21, -.02)];
+      g.userData.siren = [box(g, .06, .03, .05, '#ff3b30', -.035, .22, -.03), box(g, .06, .03, .05, '#2979ff', .035, .22, -.03)];
     }
     return g;
   }
   function makeBus() {
     const g = new THREE.Group();
-    box(g, .24, .2, .6, '#ffcc29', 0, .04, 0);
-    box(g, .246, .07, .5, winMat, 0, .13, -.03);
-    box(g, .2, .08, .01, winMat, 0, .12, .3);
-    box(g, .24, .02, .6, '#f2b400', 0, .24, 0);
-    for (const x of [-.12, .12]) for (const z of [-.2, .2]) {
-      const w = cyl(g, .05, .05, .04, '#222222', 0, 0, 0, 10);
-      w.rotation.z = Math.PI / 2; w.position.set(x, .05, z);
+    rbox(g, .26, .22, .62, '#ffcc29', 0, .04, 0, .04);
+    box(g, .265, .07, .48, winMat, 0, .14, -.03);
+    box(g, .2, .08, .01, winMat, 0, .13, .311);
+    rbox(g, .24, .025, .56, '#f2b400', 0, .255, 0, .01);
+    box(g, .268, .02, .62, '#e8553f', 0, .09, 0);
+    for (const x of [-.13, .13]) for (const z of [-.2, .2]) {
+      const w = cyl(g, .052, .052, .045, '#2b2b33', 0, 0, 0, 14);
+      w.rotation.z = Math.PI / 2; w.position.set(x, .052, z);
+      const hub = cyl(g, .024, .024, .05, '#d9dde3', 0, 0, 0, 10);
+      hub.rotation.z = Math.PI / 2; hub.position.set(x, .052, z);
     }
-    for (const x of [-.08, .08]) box(g, .05, .03, .01, lightMat, x, .07, .3);
+    for (const x of [-.08, .08]) { const hl = cyl(g, .022, .022, .012, lightMat, 0, 0, 0, 10); hl.rotation.x = Math.PI / 2; hl.position.set(x, .08, .31); }
     return g;
   }
   function wheels(g, xs, zs, rad) {
@@ -1138,7 +1230,7 @@
     const S = 2048, t = S / N;
     const cv = document.createElement('canvas'); cv.width = cv.height = S;
     const c = cv.getContext('2d');
-    const TILE = { grass: ['#78c257', '#72bc52'], sand: ['#f1dc9e', '#ecd593'], water: ['#3f8fc0', '#3f8fc0'] };
+    const TILE = { grass: ['#4f933a', '#4c8e37'], sand: ['#f1dc9e', '#ecd593'], water: ['#3f8fc0', '#3f8fc0'] };
     for (let z = 0; z < N; z++) for (let x = 0; x < N; x++) {
       c.fillStyle = TILE[terrainAt(x, z)][(x + z) % 2];
       c.fillRect(x * t, z * t, t, t);
@@ -1782,9 +1874,9 @@
   const skyAt = (key, k) => (k < .5 ? mixHex(SKY[key][0], SKY[key][1], k * 2) : mixHex(SKY[key][1], SKY[key][2], (k - .5) * 2));
   function applyLighting(time) {
     const k = nightK;
-    sun.intensity = .95 - .78 * k;
+    sun.intensity = .9 - .73 * k;
     sun.color.set(skyAt('sun', k));
-    hemi.intensity = .6 - .3 * k;
+    hemi.intensity = .78 - .48 * k;
     hemi.color.set(skyAt('hemi', k));
     winMat.emissiveIntensity = k * .95;
     lightMat.emissiveIntensity = k * 1.6;
