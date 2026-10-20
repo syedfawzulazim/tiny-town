@@ -1165,21 +1165,57 @@
     g.scale.setScalar(kid ? 1.1 : 1.25);
     return g;
   }
+  // a leg that swings from the hip: one baked mesh per leg so pets cost only a few draw calls
+  function petLeg(g, x, y, z, len, r, fur, paw, thigh) {
+    const p = new THREE.Group(); p.position.set(x, y, z); g.add(p);
+    cyl(p, r, r * .85, len, fur, 0, -len, 0, 8);
+    ball(p, r * 1.1, paw, 0, -len + .002, r * .4, 1).scale.set(1, .6, 1.35);
+    if (thigh) ball(p, r * 1.8, fur, 0, -r * 1.2, 0, 1).scale.set(.75, 1.15, 1.05);
+    return bake(p);
+  }
   function makeCat(r) {
     const g = new THREE.Group();
-    const c = pick(r, ['#f4a742', '#3b3b3b', '#f5f5f5', '#9e9e9e', '#c98b5a']);
-    const dark = pick(r, ['#5d4037', '#212121', '#e0e0e0']);
-    box(g, .08, .07, .17, c, 0, .06, 0);
-    box(g, .085, .075, .075, c, 0, .1, .11);
-    for (const x of [-.026, .026]) {
-      cone(g, .02, .045, c, x, .175, .1, 4);
-      box(g, .014, .014, .005, '#7cc242', x * .8, .13, .149);     // green eyes
+    const coat = pick(r, [
+      { c: '#e8913a', stripes: '#b35f1c', belly: '#f6dcae', eye: '#7cc242' },   // ginger tabby
+      { c: '#9a9fa6', stripes: '#5c6168', belly: '#e9e9e9', eye: '#f2c94c' },   // grey tabby
+      { c: '#2a2a2e', eye: '#f2c94c' },                                          // black
+      { c: '#f6f4ef', eye: '#5aa9e6' },                                          // white
+      { c: '#2a2a2e', belly: '#f6f4ef', eye: '#7cc242' },                        // black and white
+      { c: '#f6f4ef', patches: ['#e8913a', '#2a2a2e'], eye: '#d9a441' },         // calico
+    ]);
+    const fur = soft(coat.c), light = soft(coat.belly || coat.c);
+    ball(g, .055, fur, 0, .088, -.005, 2).scale.set(.78, .75, 1.55);          // body
+    ball(g, .042, light, 0, .094, .048, 2).scale.set(.9, 1, .9);              // chest
+    ball(g, .042, fur, 0, .148, .088, 2).scale.set(1.12, .95, 1);             // round head
+    for (const x of [-.012, .012]) ball(g, .016, light, x, .134, .121, 1);   // muzzle
+    ball(g, .006, soft('#ff8fa3'), 0, .143, .136, 1);                        // pink nose
+    for (const x of [-.019, .019]) {
+      ball(g, .011, soft(coat.eye), x, .155, .121, 1);
+      box(g, .004, .015, .004, '#111111', x, .148, .131);                     // slit pupils
+      const ear = cone(g, .016, .036, fur, x * 1.26, .17, .083, 4); ear.rotation.z = -Math.sign(x) * .3;
+      const pink = cone(g, .009, .024, soft('#ffb3c1'), x * 1.26, .171, .088, 4); pink.rotation.z = -Math.sign(x) * .3;
+      for (const t of [.12, -.12]) { const w = box(g, .05, .0025, .0025, '#f4f4f4', x * 2.2, .135, .127); w.rotation.set(0, Math.sign(x) * .25, t); }
     }
-    box(g, .016, .012, .006, '#ff8fa3', 0, .115, .149);            // pink nose
-    for (const x of [-.028, .028]) for (const z of [-.06, .06]) box(g, .02, .06, .02, c, x, 0, z);
-    for (const z of [-.04, .0, .04]) box(g, .082, .012, .02, dark, 0, .126, z);   // stripes
-    const tail = box(g, .018, .11, .018, c, 0, .1, -.09);
-    tail.rotation.x = -.35;
+    if (coat.stripes) {
+      for (const z of [-.062, -.036, -.01, .016, .042]) box(g, .05, .008, .011, coat.stripes, 0, .113 + .041 * Math.sqrt(1 - (z / .085) ** 2) - .01, z);
+      box(g, .028, .006, .012, coat.stripes, 0, .183, .088);
+    }
+    if (coat.patches) for (let i = 0; i < 4; i++) {
+      const z = -.06 + i * .035 + (r() - .5) * .01, x = (r() - .5) * .04;
+      ball(g, .028 + r() * .008, soft(coat.patches[i % 2]), x, .118, z, 1).scale.set(1, .45, 1.2);
+    }
+    const paw = coat.belly ? light : fur;
+    const limbs = [[-.024, .05], [.024, .05], [-.026, -.055], [.026, -.055]].map(([x, z], i) => petLeg(g, x, .07, z, .068, .011, fur, paw, i > 1));
+    // a long tail that curls up at the tip
+    const tail = new THREE.Group(); tail.position.set(0, .108, -.085); tail.rotation.x = -1.35; g.add(tail);
+    cyl(tail, .008, .01, .06, fur, 0, 0, 0, 6);
+    const mid = new THREE.Group(); mid.position.y = .058; mid.rotation.x = .6; tail.add(mid);
+    cyl(mid, .0075, .008, .045, fur, 0, 0, 0, 6);
+    const tip = new THREE.Group(); tip.position.y = .043; tip.rotation.x = .6; mid.add(tip);
+    cyl(tip, .006, .0075, .04, coat.stripes || fur, 0, 0, 0, 6);
+    ball(tip, .006, soft(coat.stripes || coat.c), 0, .04, 0, 1);
+    bake(tail);
+    Object.assign(g.userData, { limbs, tail });
     g.scale.setScalar(1.3);
     return g;
   }
@@ -1201,15 +1237,43 @@
   }
   function makeDog(r) {
     const g = new THREE.Group();
-    const c = pick(r, ['#a0522d', '#d2a679', '#3b3b3b', '#f5f5f5']);
-    box(g, .1, .08, .2, c, 0, .07, 0);
-    box(g, .09, .08, .09, c, 0, .12, .13);
-    box(g, .03, .025, .02, '#222222', 0, .15, .18);
-    box(g, .025, .05, .02, '#5d4037', -.04, .19, .12);
-    box(g, .025, .05, .02, '#5d4037', .04, .19, .12);
-    for (const x of [-.035, .035]) for (const z of [-.07, .07]) box(g, .025, .07, .025, c, x, 0, z);
-    box(g, .02, .02, .08, c, 0, .13, -.12).rotation.x = -.6;
-    g.scale.setScalar(1.3);
+    const breed = pick(r, [
+      { c: '#d9a95b', ear: 'flop' },                                                          // golden
+      { c: '#6b4226', ear: 'flop' },                                                          // chocolate
+      { c: '#f4f1ea', ear: 'flop', earC: '#2b2b2b', spots: '#2b2b2b' },                       // spotty
+      { c: '#c58a4a', ear: 'flop', earC: '#6b4226', saddle: '#3b2a20', belly: '#f4f1ea' },   // beagle
+      { c: '#8d939b', ear: 'up', belly: '#f2f2f2' },                                          // husky
+      { c: '#2b2b2b', ear: 'up', belly: '#c58a4a' },                                          // black and tan
+    ]);
+    const fur = soft(breed.c), light = soft(breed.belly || breed.c), earC = soft(breed.earC || mixHex(breed.c, '#000000', .18));
+    ball(g, .066, fur, 0, .115, -.005, 2).scale.set(.82, .8, 1.5);            // body
+    ball(g, .052, light, 0, .118, .058, 2).scale.set(.92, 1, .9);             // chest
+    if (breed.saddle) ball(g, .06, soft(breed.saddle), 0, .133, -.025, 2).scale.set(.86, .62, 1.25);
+    if (breed.spots) for (let i = 0; i < 8; i++) {
+      const th = (r() - .5) * 2.4, z = (r() - .5) * .16, k = Math.sqrt(1 - (z / .099) ** 2);
+      ball(g, .011 + r() * .006, soft(breed.spots), .054 * Math.sin(th) * k, .115 + .053 * Math.cos(th) * k, z - .005, 1);
+    }
+    const neck = cyl(g, .03, .036, .07, fur, 0, .13, .085, 10); neck.rotation.x = .5;
+    const collar = cyl(g, .035, .037, .014, soft(pick(r, ['#e63946', '#3a86ff', '#06d6a0'])), 0, .16, .095, 12); collar.rotation.x = .5;
+    ball(g, .008, soft('#ffd23f'), 0, .152, .124, 1);                        // name tag
+    ball(g, .046, fur, 0, .2, .115, 2).scale.set(1, .95, 1.05);               // head
+    rbox(g, .042, .036, .052, light, 0, .163, .158, .015);                     // snout
+    ball(g, .012, soft('#1b1b1b'), 0, .193, .186, 1);                         // nose
+    box(g, .014, .004, .018, '#ff8fa3', 0, .158, .17);                        // tongue
+    for (const x of [-.022, .022]) {
+      ball(g, .0095, soft('#1b1b1b'), x, .212, .152, 1);
+      ball(g, .003, soft('#ffffff'), x * .9, .216, .16, 0);
+      if (breed.ear === 'flop') { const e = rbox(g, .02, .062, .04, earC, x * 2.05, .165, .108, .009); e.rotation.z = Math.sign(x) * .22; }
+      else { const e = cone(g, .019, .046, earC, x * 1.2, .232, .105, 4); e.rotation.z = -Math.sign(x) * .25; }
+    }
+    const paw = breed.belly ? light : fur;
+    const limbs = [[-.03, .06], [.03, .06], [-.032, -.065], [.032, -.065]].map(([x, z], i) => petLeg(g, x, .1, z, .09, .015, fur, paw, i > 1));
+    const tail = new THREE.Group(); tail.position.set(0, .15, -.095); tail.rotation.x = -.7; g.add(tail);
+    cyl(tail, .008, .013, .075, fur, 0, 0, 0, 6);
+    if (breed.saddle) ball(tail, .01, soft('#f4f1ea'), 0, .075, 0, 1);       // white tail tip
+    bake(tail);
+    Object.assign(g.userData, { limbs, tail });
+    g.scale.setScalar(1.2);
     return g;
   }
 
@@ -2145,6 +2209,7 @@
     lifeguard: { label: 'Lifeguard', icon: '🏊', cat: 'beach', kind: 'build', make: makeLifeguard },
     icestand: { label: 'Ice Cream', icon: '🍦', cat: 'beach', kind: 'build', make: makeIceStand },
     trafficlight: { label: 'Traffic Light', icon: '🚦', cat: 'street', kind: 'build', make: makeTrafficLight },
+    crossing: { label: 'Zebra Crossing', icon: '🦓', cat: 'street', kind: 'addon', make: makeCrossingGhost },
     busstop:  { label: 'Bus Stop', icon: '🚏', cat: 'street', kind: 'build', make: makeBusStop },
     statue:   { label: 'Statue', icon: '🗽', cat: 'street', kind: 'build', make: makeStatue },
     flagpole: { label: 'Flag', icon: '🚩', cat: 'street', kind: 'build', make: makeFlagpole },
@@ -2904,21 +2969,69 @@
 
   const cellAt = (x, z) => (inB(x, z) ? cells[idx(x, z)] : null);
   const isRoad = (x, z) => cellAt(x, z)?.type === 'road';
+  const isCrossing = (x, z) => !!cellAt(x, z)?.cross;
+  // people and pets keep to grass, sand and pavements: on a road they may only use a zebra crossing
+  // (or walk along a bridge, which has a footway by the railing)
   const walkable = (x, z) => {
     if (!inB(x, z)) return false;
     const c = cells[idx(x, z)];
-    return c ? c.type === 'road' || !!ITEMS[c.type].walk : !isWater(x, z) && !isRock(x, z);
+    return c ? (c.type === 'road' ? !!c.cross || isWater(x, z) : !!ITEMS[c.type].walk) : !isWater(x, z) && !isRock(x, z);
   };
+  // one step for someone on foot: never from one zebra crossing straight onto the next, along the road
+  const stepOk = (a, b) => walkable(b.x, b.z) && !(isCrossing(a.x, a.z) && isCrossing(b.x, b.z));
   const BRIDGE_LIFT = .07;   // bridge decks sit higher than roads
 
   const roadGeo = new THREE.BoxGeometry(1, .03, 1);
   const ROAD = '#767d89', PAVE = '#ece6d9', KERB = '#cfc7b6';
-  // Roads look at their neighbours: centre lines on straight bits, zebra crossings at junctions,
-  // pavements on open sides, and a wooden bridge with railings over water.
+  const SIGNAL = {
+    r: new THREE.MeshStandardMaterial({ color: 0xff3b30, emissive: 0xff3b30, emissiveIntensity: .9 }),
+    y: new THREE.MeshStandardMaterial({ color: 0xffc400, emissive: 0xffc400, emissiveIntensity: .9 }),
+    g: new THREE.MeshStandardMaterial({ color: 0x2ee86a, emissive: 0x2ee86a, emissiveIntensity: .9 }),
+  };
+  // traffic lights standing on a road's pavement corners, facing the cars coming each way
+  function roadLights(g, alongX, con) {
+    const off = mat('#3d4552'), bulbs = [];
+    for (const k of [1, -1]) {
+      const [ax, az] = alongX ? [k, 0] : [0, k], [sx, sz] = alongX ? [0, k] : [k, 0];
+      const open = !con[DIRS.findIndex(([dx, dz]) => dx === sx && dz === sz)];
+      const px = open ? ax * .3 + sx * .42 : k * .42, pz = open ? az * .3 + sz * .42 : k * .42;
+      cyl(g, .035, .04, .03, '#2f3b52', px, .05, pz, 8);
+      cyl(g, .014, .016, .5, '#2f3b52', px, .05, pz, 6);
+      rbox(g, .075, .2, .075, '#222831', px, .46, pz, .015);
+      ['r', 'y', 'g'].forEach((c, i) => {
+        const b = ball(g, .021, off, px - ax * .04, .62 - i * .062, pz - az * .04, 1);
+        b.userData.k = c; bulbs.push(b);
+        box(g, alongX ? .012 : .05, .008, alongX ? .05 : .012, '#222831', px - ax * .045, .645 - i * .062, pz - az * .045);
+      });
+    }
+    g.userData.bulbs = bulbs;
+    g.userData.light = 'g';
+    g.userData.tick = () => { for (const b of bulbs) b.material = b.userData.k === g.userData.light ? SIGNAL[b.userData.k] : off; };
+  }
+  // black and white stripes across the road, with a striped pole and orange globe on each pavement
+  function zebra(g, alongX, con) {
+    for (let k = -2; k <= 2; k++) box(g, alongX ? .34 : .075, .006, alongX ? .075 : .34, '#f7f7f2', alongX ? 0 : k * .13, .03, alongX ? k * .13 : 0);
+    for (const k of [1, -1]) {
+      const [sx, sz] = alongX ? [0, k] : [k, 0];
+      if (con[DIRS.findIndex(([dx, dz]) => dx === sx && dz === sz)]) continue;
+      const px = sx * .43 + (alongX ? .22 : 0), pz = sz * .43 + (alongX ? 0 : .22);
+      for (let i = 0; i < 4; i++) cyl(g, .012, .012, .065, i % 2 ? '#222831' : '#f7f7f2', px, .05 + i * .065, pz, 6);
+      ball(g, .032, soft('#ff9f1c'), px, .34, pz, 1);
+    }
+  }
+  // what the zebra crossing tool shows under the finger
+  function makeCrossingGhost() {
+    const g = new THREE.Group();
+    box(g, 1, .03, 1, ROAD);
+    zebra(g, true, [true, true, false, false]);
+    return g;
+  }
+  // Roads look at their neighbours: centre lines on straight bits, pavements on open sides,
+  // and a wooden bridge with railings over water. A road can also carry a zebra crossing and traffic lights.
   function buildRoad(x, z) {
     const g = new THREE.Group();
     const con = DIRS.map(([dx, dz]) => isRoad(x + dx, z + dz));
-    const n = con.filter(Boolean).length;
+    const o = cellAt(x, z), alongX = con[0] || con[1] || !(con[2] || con[3]);
     if (isWater(x, z)) {
       box(g, 1, .08, 1, '#b98a5a', 0, .02, 0);
       for (let k = -2; k <= 2; k++) {
@@ -2938,9 +3051,7 @@
       if (!con[i]) {
         box(g, dx ? .16 : 1, .05, dz ? .16 : 1, PAVE, dx * .42, 0, dz * .42);
         box(g, dx ? .02 : 1, .056, dz ? .02 : 1, KERB, dx * .345, 0, dz * .345);
-      } else if (n >= 3) {
-        for (let k = -2; k <= 2; k++) box(g, dx ? .14 : .07, .006, dz ? .14 : .07, '#f7f7f2', dx ? dx * .36 : k * .14, .03, dz ? dz * .36 : k * .14);
-      } else {
+      } else if (!(o && o.cross)) {
         box(g, dx ? .24 : .045, .006, dz ? .24 : .045, '#f7f7f2', dx * .3, .03, dz * .3);
       }
     });
@@ -2948,6 +3059,8 @@
     for (const [cx, cz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
       if (con[cx > 0 ? 0 : 1] && con[cz > 0 ? 2 : 3]) box(g, .16, .05, .16, PAVE, cx * .42, 0, cz * .42);
     }
+    if (o && o.cross) zebra(g, alongX, con);
+    if (o && o.light) roadLights(g, alongX, con);
     return bake(g);
   }
   function refreshRoad(x, z) {
@@ -3022,14 +3135,19 @@
     if (m.path) {
       const p = m.path[0];
       if (!p) return null;
-      if (!walkable(p.x, p.z) || Math.abs(p.x - m.to.x) + Math.abs(p.z - m.to.z) !== 1) { m.path = null; return null; }   // the way got blocked: plan again
+      if (!stepOk(m.to, p) || Math.abs(p.x - m.to.x) + Math.abs(p.z - m.to.z) !== 1) { m.path = null; return null; }   // the way got blocked: plan again
       return m.path.shift();
     }
-    const ok = m.it.vehicle ? isRoad : walkable;
-    const opts = DIRS.map(([dx, dz]) => ({ x: m.to.x + dx, z: m.to.z + dz })).filter(p => ok(p.x, p.z));
+    const ok = m.it.vehicle ? p => isRoad(p.x, p.z) : p => stepOk(m.to, p);
+    const opts = DIRS.map(([dx, dz]) => ({ x: m.to.x + dx, z: m.to.z + dz })).filter(ok);
     if (!opts.length) return null;
     const fwd = opts.filter(p => !(p.x === m.from.x && p.z === m.from.z));
     if (!fwd.length) return opts[0];
+    // on a zebra crossing, keep going straight over to the other side
+    if (!m.it.vehicle && isCrossing(m.to.x, m.to.z)) {
+      const across = fwd.find(p => p.x === 2 * m.to.x - m.from.x && p.z === 2 * m.to.z - m.from.z);
+      if (across) return across;
+    }
     if (m.home) {
       const far = p => Math.max(Math.abs(p.x - m.home.x), Math.abs(p.z - m.home.z));
       const near = fwd.filter(p => far(p) <= HOME_RANGE);
@@ -3195,7 +3313,7 @@
     playground: 'playground', ferris: 'big wheel', carousel: 'merry-go-round', treehouse: 'treehouse', sandbox: 'sandpit', pitch: 'football pitch',
     appletree: 'apple tree', veggies: 'veggie patch', butterflies: 'butterfly garden', sunflowers: 'sunflowers', mushrooms: 'mushrooms', boulder: 'big rock', snowman: 'snowman',
     lighthouse: 'lighthouse', umbrella: 'beach umbrella', sandcastle: 'sandcastle', beachhut: 'beach hut', lifeguard: 'lifeguard tower', icestand: 'ice cream stand',
-    trafficlight: 'traffic light', busstop: 'bus stop', statue: 'statue', flagpole: 'flag', mailbox: 'post box', picnic: 'picnic table', hedge: 'hedge', fence: 'fence',
+    trafficlight: 'traffic light', crossing: 'zebra crossing', busstop: 'bus stop', statue: 'statue', flagpole: 'flag', mailbox: 'post box', picnic: 'picnic table', hedge: 'hedge', fence: 'fence',
     pots: 'flower pots', bins: 'recycling bins', icetruck: 'ice cream truck', cow: 'cow', sheep: 'sheep', horse: 'horse', chicken: 'chicken', rabbit: 'rabbit', ducks: 'duck family',
   };
   const PLURAL = new Set(['flowers', 'sunflowers', 'mushrooms', 'pots', 'bins']);
@@ -3221,7 +3339,10 @@
     edge: 'Too close to the edge! Move it a little.',
     busy: 'Someone is standing there! Try another spot.',
     road: 'Cars need a road! Build a road first. 🛣️',
-    walk: 'They can’t stand there. Try the grass or a road!',
+    walk: 'They can’t stand there. Try the grass!',
+    pavement: 'People and pets walk on the grass and pavement, not on the road! Build a zebra crossing so they can cross. 🦓',
+    needroad: 'A zebra crossing goes on a road! Tap a road. 🛣️',
+    bridge: 'Put it on a road on land, not on a bridge! 🌉',
     water: 'That’s water! Build on land, or draw a road across to make a bridge. 🌉',
     swim: 'Splash! They can’t walk on water. Build a bridge with a road!',
     rock: 'That’s the mountain! Build on the grass instead. ⛰️',
@@ -3329,7 +3450,7 @@
 
   /* ---------- save / load ---------- */
   function serialize() {
-    const list = [...objs].map(o => ({ t: o.type, x: o.x, z: o.z, r: o.rot, s: o.seed }));
+    const list = [...objs].map(o => ({ t: o.type, x: o.x, z: o.z, r: o.rot, s: o.seed, ...(o.cross || o.light ? { f: (o.cross ? 'x' : '') + (o.light ? 'l' : '') } : {}) }));
     if (moving) list.push({ t: moving.type, x: moving.x, z: moving.z, r: moving.r0, s: moving.seed });
     return {
       v: 2,
@@ -3370,7 +3491,12 @@
   function loadTown(data, animate = false) {
     clearTown();
     if (data.name) nameEl.value = data.name;
-    for (const o of data.objs || []) if (ITEMS[o.t]) placeObj(o.t, o.x, o.z, o.r || 0, o.s, animate);
+    for (const o of data.objs || []) {
+      if (!ITEMS[o.t]) continue;
+      const p = placeObj(o.t, o.x, o.z, o.r || 0, o.s, animate);
+      // roads remember a zebra crossing (x) and traffic lights (l)
+      if (p && o.t === 'road' && typeof o.f === 'string') { p.cross = o.f.includes('x'); p.light = o.f.includes('l') && !isWater(p.x, p.z); refreshRoad(p.x, p.z); }
+    }
     for (const m of data.movers || []) if (ITEMS[m.t]) addMover(m.t, m.x, m.z, m.s, animate);
     if (Array.isArray(data.residents)) {
       for (const r of data.residents) {
@@ -3393,6 +3519,8 @@
     const mv = (t, x, z) => movers.push({ t, x: x + ox, z: z + oz, s: s++ * 104729 });
     for (let x = 3; x <= 12; x++) { o('road', x, 4); o('road', x, 11); }
     for (let z = 5; z <= 10; z++) { o('road', 3, z); o('road', 12, z); o('road', 7, z); }
+    const onRoad = (x, z, f) => { objs.find(q => q.t === 'road' && q.x === x + ox && q.z === z + oz).f = f; };
+    onRoad(7, 6, 'x'); onRoad(5, 11, 'x'); onRoad(10, 11, 'x'); onRoad(7, 11, 'l');
     o('castle', 9, 1); o('school', 4, 5); o('hospital', 8, 5); o('fire', 10, 5); o('shop', 11, 5);
     o('house', 4, 9); o('cottage', 5, 9); o('house', 6, 9); o('house', 8, 9); o('cottage', 9, 9); o('flats', 11, 9); o('shop', 10, 9);
     o('house', 4, 12, 2); o('cottage', 6, 12, 2); o('house', 9, 12, 2); o('flats', 11, 12, 2);
@@ -3544,11 +3672,20 @@
     }
     return null;
   }
+  // zebra crossings and traffic lights can go onto a road tile (traffic lights can stand on the grass too)
+  const ROAD_ADDON = { crossing: 'cross', trafficlight: 'light' };
+  const addOnHere = (tx, tz) => !moving && ROAD_ADDON[tool] && (ITEMS[tool].kind === 'addon' || isRoad(tx, tz));
   function problemAt(tx, tz) {
     const { it, rot: r } = cur();
+    if (addOnHere(tx, tz)) {
+      const c = cellAt(tx, tz);
+      if (!c || c.type !== 'road') return 'needroad';
+      if (isWater(tx, tz)) return 'bridge';
+      return c[ROAD_ADDON[tool]] ? 'same' : null;
+    }
     if (it.kind === 'build') { const a = anchorFor(it, tx, tz, r); return checkBuild(it, a.x0, a.z0, a.w, a.h); }
     if (it.kind === 'road') return cellAt(tx, tz) ? (isRoad(tx, tz) ? 'same' : 'taken') : isRock(tx, tz) ? 'rock' : null;
-    if (it.kind === 'mover') return it.vehicle ? (isRoad(tx, tz) ? null : 'road') : (walkable(tx, tz) ? null : (isWater(tx, tz) ? 'swim' : isRock(tx, tz) ? 'rock' : 'walk'));
+    if (it.kind === 'mover') return it.vehicle ? (isRoad(tx, tz) ? null : 'road') : (walkable(tx, tz) ? null : isRoad(tx, tz) ? 'pavement' : (isWater(tx, tz) ? 'swim' : isRock(tx, tz) ? 'rock' : 'walk'));
     return null;
   }
   function positionGhost() {
@@ -3570,7 +3707,7 @@
       ghost.visible = true;
       const lift = it.kind === 'mover' && isWater(x0, z0) ? BRIDGE_LIFT : 0;
       ghost.position.set(x0 + w / 2 - N / 2, (it.vehicle ? .03 : (it.kind === 'mover' ? .01 : 0)) + lift, z0 + h / 2 - N / 2);
-      ghost.rotation.y = it.kind === 'build' ? r * Math.PI / 2 : 0;
+      ghost.rotation.y = it.kind === 'build' ? r * Math.PI / 2 : it.kind === 'addon' && !isRoad(x0 + 1, z0) && !isRoad(x0 - 1, z0) && (isRoad(x0, z0 + 1) || isRoad(x0, z0 - 1)) ? Math.PI / 2 : 0;
     }
   }
 
@@ -3617,6 +3754,11 @@
     const ms = movers.filter(m => { const p = moverTile(m); return m.g.visible && p.x === tx && p.z === tz; });
     if (ms.length) { ms.forEach(removeMover); sfx.erase(); say(`Bye bye, ${nameOf(ms[0].type)}!`); changed(); return true; }
     const c = cellAt(tx, tz);
+    if (c && (c.light || c.cross)) {
+      const what = c.light ? 'light' : 'cross';
+      c[what] = false; refreshRoad(tx, tz); sfx.erase();
+      say(`Bye bye, ${what === 'light' ? 'traffic light' : 'zebra crossing'}!`); changed(); return true;
+    }
     if (c) { removeObj(c); evictResidents(c); sfx.erase(); sayBye(c); if (c.type !== 'road') dust(c.x, c.z, c.w, c.h); changed(); return true; }
     return false;
   }
@@ -3670,7 +3812,7 @@
     const depth = (fx ? o.w : o.h) / 2 - .15;
     return new THREE.Vector3(o.group.position.x + fx * depth, .01, o.group.position.z + fz * depth);
   }
-  // shortest walk over grass, sand and roads (breadth-first: the board is small)
+  // shortest walk over grass, sand, bridges and zebra crossings (breadth-first: the board is small)
   function findPath(a, b) {
     const start = idx(a.x, a.z), end = idx(b.x, b.z);
     if (start === end) return [];
@@ -3680,7 +3822,7 @@
       const c = q[i], cx = c % N, cz = (c / N) | 0;
       for (const [dx, dz] of DIRS) {
         const x = cx + dx, z = cz + dz;
-        if (!walkable(x, z) || prev[idx(x, z)] >= 0) continue;
+        if (!stepOk({ x: cx, z: cz }, { x, z }) || prev[idx(x, z)] >= 0) continue;
         prev[idx(x, z)] = c; q.push(idx(x, z));
       }
     }
@@ -4049,6 +4191,11 @@
       return;
     }
     if (selected) { closeCard(); if (!c) return; }
+    if (tool === 'look' && c && (c.light || c.cross)) {
+      if (c.light) PLAYS.trafficlight(c, c.group, topOf(c));
+      else { sfx.road(); squish(c.group); floatEmoji('🦓', topOf(c)); toast('Zebra crossing: look left, look right, then walk across! 🚸', 2000); }
+      return;
+    }
     act(tx, tz);
   }
 
@@ -4065,7 +4212,13 @@
       toast(MSG[why]);
       return;
     }
-    if (it.kind === 'build') {
+    if (addOnHere(tx, tz)) {
+      const c = cellAt(tx, tz);
+      c[ROAD_ADDON[tool]] = true;
+      refreshRoad(tx, tz); squish(c.group); sfx.place();
+      dust(tx, tz, 1, 1);
+      say(tool === 'crossing' ? 'You built a zebra crossing! Look left, look right, then walk across.' : 'You built a traffic light!');
+    } else if (it.kind === 'build') {
       const a = anchorFor(it, tx, tz);
       const o = placeObj(tool, a.x0, a.z0, rot, ghostSeed);
       if (o) dust(o.x, o.z, o.w, o.h);
@@ -4246,17 +4399,40 @@
   }
   const NONE = [];
   // how fast and how high each kind bobs as it walks: [speed, height]
-  const BOB = { walk: [11, .018], dog: [14, .035], cat: [9, .02], bird: [13, .07], cow: [7, .012], sheep: [10, .02], horse: [12, .03], chicken: [16, .03], rabbit: [9, .08], ducks: [14, .012] };
+  const BOB = { walk: [11, .018], dog: [14, .012], cat: [10, .006], bird: [13, .07], cow: [7, .012], sheep: [10, .02], horse: [12, .03], chicken: [16, .03], rabbit: [9, .08], ducks: [14, .012] };
   // traffic lights all change together: green, yellow, then red, when cars wait in front of them
-  const redTiles = new Set();
+  // (litTiles: road tiles a light looks after; redTiles: the ones cars must not drive onto right now)
+  const redTiles = new Set(), litTiles = new Set();
   function updateTraffic(time) {
-    redTiles.clear();
+    redTiles.clear(); litTiles.clear();
     const k = time % 11, state = k < 5 ? 'g' : k < 6.5 ? 'y' : 'r';
     for (const o of objs) {
-      if (o.type !== 'trafficlight') continue;
+      const tiles = o.type === 'trafficlight' ? DIRS.map(([dx, dz]) => [o.x + dx, o.z + dz]).filter(([x, z]) => isRoad(x, z))
+        : o.light ? [[o.x, o.z]] : null;
+      if (!tiles) continue;
       o.group.userData.light = state;
-      if (state === 'r') for (const [dx, dz] of DIRS) if (isRoad(o.x + dx, o.z + dz)) redTiles.add(idx(o.x + dx, o.z + dz));
+      for (const [x, z] of tiles) { litTiles.add(idx(x, z)); if (state === 'r') redTiles.add(idx(x, z)); }
     }
+  }
+  const onTile = (m, p) => (m.from.x === p.x && m.from.z === p.z) || (m.to.x === p.x && m.to.z === p.z);
+  // someone on foot is on (or stepping onto) this crossing
+  const walkerOn = p => movers.some(w => !w.it.vehicle && w.g.visible && w.state === 'out' && onTile(w, p) && !(w.from.x === p.x && w.from.z === p.z && w.t > .65));
+  // safe to step onto this crossing? no car on it or about to drive on, and a red light for the cars if there is one
+  function safeToCross(p) {
+    const k = idx(p.x, p.z);
+    if (litTiles.has(k) && !redTiles.has(k)) return false;
+    return !movers.some(v => v.it.vehicle && ((v.from.x === p.x && v.from.z === p.z) || (v.to.x === p.x && v.to.z === p.z && (v.t > .5 || (v.t > .2 && (v.sirenT > 0 || !redTiles.has(k)))))));
+  }
+  // someone ended up on a road (an old save, or the road was built under them): hop to the nearest pavement or grass
+  function hopOff(m) {
+    const p = moverTile(m);
+    for (let r = 1; r <= 4; r++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dz)) !== r || !walkable(p.x + dx, p.z + dz)) continue;
+      m.from = { x: p.x + dx, z: p.z + dz }; m.to = { ...m.from }; m.t = 1; m.path = null; m.jump = 1;
+      m.pos.copy(tileWorld(m.from.x, m.from.z));
+      return true;
+    }
+    return false;
   }
   // buses wait at bus stops, and sometimes someone gets off
   function busStop(m) {
@@ -4273,7 +4449,7 @@
     if (m.it.vehicle) {
       if (!isRoad(m.to.x, m.to.z) || !isRoad(m.from.x, m.from.z)) { removeMover(m); return; }
     } else if (!walkable(m.to.x, m.to.z)) {
-      if (walkable(m.from.x, m.from.z)) { m.to = { ...m.from }; m.t = 1; } else { removeMover(m); return; }
+      if (walkable(m.from.x, m.from.z)) { m.to = { ...m.from }; m.t = 1; } else if (!hopOff(m)) { removeMover(m); return; }
     }
     let moving = false;
     if (m.wait > 0) m.wait -= dt;
@@ -4288,15 +4464,21 @@
           if (ahead && o.t + 1 - m.t < .55) { blocked = true; break; }
         }
         if (!blocked && !(m.sirenT > 0) && m.t > .36 && m.t < .5 && redTiles.has(idx(m.to.x, m.to.z)) && !redTiles.has(idx(m.from.x, m.from.z))) blocked = true;
+        // everyone stops for people on a zebra crossing, even fire trucks
+        if (!blocked && m.t > .3 && m.t < .5 && isCrossing(m.to.x, m.to.z) && walkerOn(m.to)) blocked = true;
       }
       if (!blocked && !(m.waveT > 0)) {
         m.t += dt * m.speed; moving = true;
       }
       if (m.t >= 1) {
         const n = nextTile(m);
-        if (n) { m.from = m.to; m.to = n; m.t -= 1; if (m.type === 'bus') busStop(m); }
+        if (n && !m.it.vehicle && isCrossing(n.x, n.z) && !isCrossing(m.to.x, m.to.z) && !safeToCross(n)) {
+          // wait at the kerb: look left, look right
+          if (m.path) m.path.unshift(n);
+          m.t = 1; moving = false; m.wait = .5;
+        } else if (n) { m.from = m.to; m.to = n; m.t -= 1; if (m.type === 'bus') busStop(m); }
         else { m.t = 1; moving = false; }
-        if (!m.it.vehicle && !m.path && Math.random() < (m.type === 'cat' ? .35 : .18)) {
+        if (!m.it.vehicle && !m.path && !isCrossing(m.to.x, m.to.z) && m.wait <= 0 && Math.random() < (m.type === 'cat' ? .35 : .18)) {
           m.wait = .6 + Math.random() * (m.type === 'cat' ? 4 : 2.2);
           if (m.it.person && Math.random() < .3) m.waveT = 1.2;   // stop, look around, and sometimes wave
         }
@@ -4308,7 +4490,10 @@
     const dx = tmpB.x - tmpA.x, dz = tmpB.z - tmpA.z;
     if (dx || dz) {
       if (m.it.vehicle) { tmpP.x += -dz * .2; tmpP.z += dx * .2; }
-      else { tmpP.x += -dz * m.off; tmpP.z += dx * m.off; }
+      else {
+        const off = isRoad(m.to.x, m.to.z) && isWater(m.to.x, m.to.z) ? (m.off < 0 ? -.36 : .36) : m.off;   // bridges: keep to the footway by the railing
+        tmpP.x += -dz * off; tmpP.z += dx * off;
+      }
     } else moving = false;
     const want = m.waveT > 0 && m.faceCam ? Math.atan2(camera.position.x - m.pos.x, camera.position.z - m.pos.z) : (dx || dz) ? Math.atan2(dx, dz) : m.yaw;
     let turnBy = want - m.yaw; turnBy = Math.atan2(Math.sin(turnBy), Math.cos(turnBy));
@@ -4331,6 +4516,15 @@
     }
     m.g.position.set(m.pos.x, y, m.pos.z);
     m.g.rotation.y = m.yaw;
+    const pet = m.g.userData;
+    if (pet.limbs) {
+      // four legs walk in diagonal pairs; dogs wag (faster when they're happy), cats swish slowly
+      m.walkK += ((moving && m.wait <= 0 ? 1 : 0) - m.walkK) * Math.min(1, dt * 10);
+      const sw = Math.sin(time * BOB[m.type][0] + m.phase) * .55 * m.walkK;
+      pet.limbs[0].rotation.x = pet.limbs[3].rotation.x = sw;
+      pet.limbs[1].rotation.x = pet.limbs[2].rotation.x = -sw;
+      pet.tail.rotation.z = m.type === 'dog' ? Math.sin(time * (m.jump > 0 ? 30 : 16) + m.phase) * .5 : Math.sin(time * 1.6 + m.phase) * .35;
+    }
     if (m.g.userData.legs) animPerson(m, dt, time, moving && m.wait <= 0);
     if (m.g.userData.siren) {
       m.sirenT = Math.max(0, (m.sirenT || 0) - dt);
