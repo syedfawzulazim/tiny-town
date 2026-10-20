@@ -10,6 +10,7 @@ Open `index.html` in any modern browser. Nothing to install.
 
 - Pick something from the tray at the bottom, then tap the grass to build it.
 - Drag with the road tool to draw roads. Cars and buses need roads to drive on. Draw a road across the river to build a bridge.
+- People and pets walk on the grass and pavements, not the road. Put a 🦓 zebra crossing on a road so they can cross: they wait at the kerb, and cars stop for them. Traffic lights can go right on a road too.
 - Tap a building to play with it: the school bell rings, the hospital sends out an ambulance, the duck jumps.
 - There's lots more to build: a bakery, café, library, police station, train station, zoo and farm; a playground, big wheel, merry-go-round and football pitch; apple trees, a veggie patch that grows, butterflies and a snowman; a lighthouse, sandcastles and beach huts; traffic lights that stop the cars, a bus stop the bus waits at, and cows, sheep, horses, chickens, rabbits and ducks.
 - Every home has its own family. They come out to play, wave when you tap them, and walk home and go inside when it gets dark. Knock on a house to call someone to the door.
