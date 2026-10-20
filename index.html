@@ -404,6 +404,7 @@
   const riverX = z => 23 + Math.round(1.5 * Math.sin(z * .35));
   const SEA_Y = -.32, SHORE = 3.6;               // sea level, and how far the south beach runs out before the water
   const MOUTH_X = riverX(N - 1) + 1 - N / 2;     // where the river leaves the board
+  const PIER = { x: -4.5, z0: N / 2 + .4, z1: N / 2 + 7 };   // the harbour pier on the south beach
   const TERRAIN = new Array(N * N);
   for (let z = 0; z < N; z++) for (let x = 0; x < N; x++) {
     const d = Math.hypot(x + .5 - LAKE.x, z + .5 - LAKE.z);
@@ -1274,6 +1275,65 @@
   const footprint = (it, rot) => { let [w, h] = it.size || [1, 1]; if (rot % 2) [w, h] = [h, w]; return [w, h]; };
 
   /* ---------- the board ---------- */
+  // smooth 3D noise (0..1), for sand and the mountain's ridges
+  const hash3 = (x, y, z) => { const s = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453; return s - Math.floor(s); };
+  function noise3(x, y, z) {
+    const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+    let u = x - xi, v = y - yi, w = z - zi;
+    u = u * u * (3 - 2 * u); v = v * v * (3 - 2 * v); w = w * w * (3 - 2 * w);
+    const L = (a, b, t) => a + (b - a) * t, h = (i, j, k) => hash3(xi + i, yi + j, zi + k);
+    return L(L(L(h(0, 0, 0), h(1, 0, 0), u), L(h(0, 1, 0), h(1, 1, 0), u), v), L(L(h(0, 0, 1), h(1, 0, 1), u), L(h(0, 1, 1), h(1, 1, 1), u), v), w);
+  }
+  function fbm3(x, y, z, oct = 4) {
+    let sum = 0, amp = .5, norm = 0;
+    for (let i = 0; i < oct; i++) { sum += noise3(x, y, z) * amp; norm += amp; amp *= .5; x *= 2.03; y *= 2.03; z *= 2.03; }
+    return sum / norm;
+  }
+  // sharp crests and deep creases, like real mountain ridges
+  function ridged3(x, y, z, oct = 5) {
+    let sum = 0, amp = .5, norm = 0, wgt = 1;
+    for (let i = 0; i < oct; i++) {
+      let n = 1 - Math.abs(noise3(x, y, z) * 2 - 1); n *= n * wgt;
+      wgt = clamp(n * 2, 0, 1);
+      sum += n * amp; norm += amp; amp *= .5; x *= 2.1; y *= 2.1; z *= 2.1;
+    }
+    return sum / norm;
+  }
+  // a tile of beach sand: grains of many colours, and wind ripples that catch the light (a normal map)
+  function sandTextures() {
+    const S = 256, r = rngSeed(5), TAU = Math.PI * 2, hgt = new Float32Array(S * S);
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      const u = x / S, v = y / S;
+      const warp = Math.sin(TAU * (u * 2 + v)) * .3 + Math.sin(TAU * (u * 3 - v * 2)) * .18 + Math.sin(TAU * (u * 5 + v * 3)) * .06;
+      const rip = .5 + .5 * Math.sin(TAU * (v * 10 + warp));
+      hgt[y * S + x] = Math.pow(rip, 1.6) * .8;
+    }
+    for (let i = 0; i < 14000; i++) hgt[Math.floor(r() * S * S)] += r() * .5;   // single grains
+    const cv = document.createElement('canvas'); cv.width = cv.height = S;
+    const c = cv.getContext('2d'), img = c.createImageData(S, S), d = img.data;
+    for (let i = 0; i < S * S; i++) {
+      const k = r();
+      let R = 232, G = 228, B = 220;
+      if (k < .035) { R = 150; G = 138; B = 125; }              // dark mineral grains
+      else if (k < .06) { R = 255; G = 252; B = 246; }          // bits of shell
+      else if (k < .08) { R = 240; G = 205; B = 170; }          // warm orange grains
+      const v = (r() - .5) * 26 + (hgt[i] - .4) * 34;          // ripple crests a touch lighter
+      d[i * 4] = clamp(R + v, 0, 255); d[i * 4 + 1] = clamp(G + v, 0, 255); d[i * 4 + 2] = clamp(B + v, 0, 255); d[i * 4 + 3] = 255;
+    }
+    c.putImageData(img, 0, 0);
+    const nv = document.createElement('canvas'); nv.width = nv.height = S;
+    const nc = nv.getContext('2d'), nimg = nc.createImageData(S, S), nd = nimg.data;
+    const H = (x, y) => hgt[((y + S) % S) * S + (x + S) % S];
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      const dx = (H(x + 1, y) - H(x - 1, y)) * 2.2, dy = (H(x, y + 1) - H(x, y - 1)) * 2.2, l = Math.hypot(dx, dy, 1), i = (y * S + x) * 4;
+      nd[i] = (-dx / l * .5 + .5) * 255; nd[i + 1] = (dy / l * .5 + .5) * 255; nd[i + 2] = (1 / l * .5 + .5) * 255; nd[i + 3] = 255;
+    }
+    nc.putImageData(nimg, 0, 0);
+    const tex = cvs => { const t = new THREE.CanvasTexture(cvs); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = renderer.capabilities.getMaxAnisotropy(); return t; };
+    return { canvas: cv, map: tex(cv), normalMap: tex(nv) };
+  }
+  const SAND = sandTextures();
+
   function makeBoard() {
     const S = 2048, t = S / N;
     const cv = document.createElement('canvas'); cv.width = cv.height = S;
@@ -1283,6 +1343,12 @@
       c.fillStyle = TILE[terrainAt(x, z)][(x + z) % 2];
       c.fillRect(x * t, z * t, t, t);
     }
+    // the same grainy, rippled sand as the beach
+    const sandPat = c.createPattern(SAND.canvas, 'repeat');
+    sandPat.setTransform(new DOMMatrix().scale(t / 102));
+    c.globalCompositeOperation = 'multiply'; c.fillStyle = sandPat;
+    for (let z = 0; z < N; z++) for (let x = 0; x < N; x++) if (terrainAt(x, z) === 'sand') c.fillRect(x * t, z * t, t, t);
+    c.globalCompositeOperation = 'source-over';
     // grass blades, sand grains and a few tiny wild flowers
     for (let i = 0; i < 26000; i++) {
       const px = Math.random() * S, pz = Math.random() * S;
@@ -1353,23 +1419,65 @@
       return h;
     };
     const BW = N + 6, BD = 8;
-    const bg = new THREE.PlaneGeometry(BW, BD, BW * 4, BD * 4);
+    const bg = new THREE.PlaneGeometry(BW, BD, BW * 6, BD * 8);
     bg.rotateX(-Math.PI / 2); bg.translate(0, 0, N / 2 + BD / 2);
     const bp = bg.attributes.position, bc = new Float32Array(bp.count * 3), sc = new THREE.Color();
-    const DRY = new THREE.Color('#e6cd8b'), WET = new THREE.Color('#c9aa6e'), UNDER = new THREE.Color('#b0925f');
+    const DRY = new THREE.Color('#f0d9a0'), DAMP = new THREE.Color('#d9bd84'), WET = new THREE.Color('#b39462'), UNDER = new THREE.Color('#9c7f52'), WRACK = new THREE.Color('#9a8763');
     for (let i = 0; i < bp.count; i++) {
       const x = bp.getX(i), z = bp.getZ(i), h = beachH(x, z);
       bp.setY(i, h);
-      const above = h - SEA_Y;
-      if (above < 0) sc.copy(UNDER); else sc.copy(WET).lerp(DRY, ease(above / .1));
-      sc.offsetHSL(0, 0, (Math.sin(x * 9.1) * Math.sin(z * 7.3)) * .015);
+      const above = h - SEA_Y, n = fbm3(x * .7, 0, z * .7, 3);
+      // dry, sun-bleached sand up top, damp sand lower down, and dark wet sand where the waves wash
+      if (above < 0) sc.copy(UNDER);
+      else sc.copy(WET).lerp(DAMP, ease(above / .05)).lerp(DRY, ease((above - .05) / .09 + (n - .5) * .6));
+      // a line of seaweed and bits left by the high tide
+      const tide = .085 + (n - .5) * .03;
+      sc.lerp(WRACK, Math.max(0, 1 - Math.abs(above - tide) / .012) * .45 * (.5 + fbm3(x * 3, 1, z * 3, 2)));
+      sc.offsetHSL(0, -.02 + n * .04, (n - .5) * .06);
       bc[i * 3] = sc.r; bc[i * 3 + 1] = sc.g; bc[i * 3 + 2] = sc.b;
     }
     bg.setAttribute('color', new THREE.BufferAttribute(bc, 3));
     bg.computeVertexNormals();
-    const beach = new THREE.Mesh(bg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }));
+    SAND.map.repeat.set(BW / 2.5, BD / 2.5); SAND.normalMap.repeat.copy(SAND.map.repeat);
+    const beach = new THREE.Mesh(bg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .95, map: SAND.map, normalMap: SAND.normalMap, normalScale: new THREE.Vector2(.7, .7) }));
     beach.receiveShadow = true;
     scene.add(beach);
+    // dune grass along the top of the beach, and shells, pebbles, starfish and driftwood on the sand
+    const bits = new THREE.Group(), br = rngSeed(77);
+    const clear = (x, s) => Math.abs(x - MOUTH_X) > 1.8 + s * .3 && (x < PIER.x - 3.3 || x > PIER.x + 2.6) && Math.abs(x) < N / 2 + .5;
+    const BLADES = ['#9caf5c', '#b6bf72', '#7e9946', '#c4bb7a'];
+    for (let i = 0, made = 0; i < 400 && made < 55; i++) {
+      const x = (br() - .5) * (N + 1), s = .12 + br() * 1.2;
+      if (!clear(x, s)) continue;
+      made++;
+      const y = beachH(x, N / 2 + s), k = 4 + Math.floor(br() * 5);
+      for (let j = 0; j < k; j++) {
+        const b = cone(bits, .018, .22 + br() * .3, BLADES[(i + j) % 4], x + (br() - .5) * .14, y - .02, N / 2 + s + (br() - .5) * .14, 3);
+        b.rotation.set((br() - .5) * .7, br() * 6, (br() - .5) * .7);
+      }
+    }
+    const SHELLS = ['#fff4ea', '#f7cfc4', '#efe2c6', '#e9b8a4'], PEBBLES = ['#8d8a84', '#a19d95', '#6f6c68', '#b8b1a5'];
+    for (let i = 0; i < 160; i++) {
+      const x = (br() - .5) * (N + 3), s = 1 + br() * 2.7;
+      if (!clear(x, s)) continue;
+      const y = beachH(x, N / 2 + s);
+      if (y < SEA_Y + .01) continue;
+      const pebble = i % 3 === 0;
+      const o = ball(bits, pebble ? .035 + br() * .04 : .03 + br() * .025, (pebble ? PEBBLES : SHELLS)[i % 4], x, y + .005, N / 2 + s, pebble ? 0 : 1);
+      o.scale.set(1 + br() * .4, pebble ? .5 : .35, 1 + br() * .3); o.rotation.y = br() * 6;
+    }
+    const star = new THREE.Shape();
+    for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2, rr = i % 2 ? .045 : .12; star[i ? 'lineTo' : 'moveTo'](Math.cos(a) * rr, Math.sin(a) * rr); }
+    for (const [x, s, c] of [[-10.5, 2.4, '#f2804a'], [3.2, 2.9, '#ee6a5c'], [13, 2.2, '#f2a03f']]) {
+      const geo = new THREE.ExtrudeGeometry(star, { depth: .025, bevelEnabled: false }); geo.rotateX(-Math.PI / 2);
+      const o = mesh(geo, c); o.position.set(x, beachH(x, N / 2 + s) + .003, N / 2 + s); o.rotation.y = x; bits.add(o);
+    }
+    for (const [x, s, l, a] of [[-12.5, 1.6, 1.3, .4], [11.4, 1.3, 1, -.3]]) {
+      const y = beachH(x, N / 2 + s) + .04;
+      const log = cyl(bits, .055, .075, l, '#a8998a', 0, 0, 0, 7); log.position.set(x, y, N / 2 + s); log.rotation.set(0, a, Math.PI / 2);
+      const twig = cyl(bits, .02, .035, .35, '#998a7b', 0, 0, 0, 5); twig.position.set(x + .2, y + .06, N / 2 + s + .08); twig.rotation.set(.6, a, .9);
+    }
+    scene.add(bake(bits));
     // the river keeps flowing over the sand and opens out into the sea
     const mp = [], STEPS = 24;
     for (let i = 0; i < STEPS; i++) {
@@ -1426,39 +1534,58 @@
   function makeMountain() {
     const g = new THREE.Group();
     const cx = MOUNT.x - N / 2, cz = MOUNT.z - N / 2;
-    const GRASS = new THREE.Color('#5f9a43'), FOREST = new THREE.Color('#3f7a37'), ROCK = new THREE.Color('#8b8577'), SNOW = new THREE.Color('#f4f7fb');
+    const MEADOW = new THREE.Color('#6fa64a'), FOREST = new THREE.Color('#355f2c'), SCREE = new THREE.Color('#9c9381'), ROCK = new THREE.Color('#8f877a'),
+      ROCK_DARK = new THREE.Color('#5e574e'), ROCK_WARM = new THREE.Color('#9a8a74'), SNOW = new THREE.Color('#f5f8fc'), SNOW_SHADE = new THREE.Color('#d9e3ef');
+    const mountMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .95, metalness: 0 });
+    const sstep = (a, b, v) => ease((v - a) / (b - a)), ease = v => { v = clamp(v, 0, 1); return v * v * (3 - 2 * v); };
     const rocks = [];
     const peak = (x, z, R, H, seed, gully) => {
-      const r = rngSeed(seed);
-      const geo = new THREE.IcosahedronGeometry(1, 5);
-      const pos = geo.attributes.position;
-      const waves = Array.from({ length: 9 }, (_, i) => ({ d: new THREE.Vector3(r() - .5, r() - .5, r() - .5).normalize(), f: 2 + i * 1.3 + r() * 2, p: r() * 6.28, a: 1 / (1 + i * .7) }));
-      const v = new THREE.Vector3(), hs = new Float32Array(pos.count), ns = new Float32Array(pos.count);
+      const geo = new THREE.IcosahedronGeometry(1, 20);
+      const pos = geo.attributes.position, o = seed * 1.37;
+      const v = new THREE.Vector3(), hs = new Float32Array(pos.count), rs = new Float32Array(pos.count), cache = new Map();
       for (let i = 0; i < pos.count; i++) {
         v.fromBufferAttribute(pos, i);
-        // rolling hills plus sharper ridges
-        let n = 0, sum = 0;
-        for (const w of waves) { const t = Math.sin(v.dot(w.d) * w.f + w.p); n += w.a * (t * .6 + (1 - Math.abs(t)) * .4 - .2); sum += w.a; }
-        n /= sum;
-        const up = Math.max(v.y, 0);
-        let sc = R * (1 - .5 * up) * (1 + n * .24);
-        if (gully && v.z > 0) sc *= 1 - .16 * Math.exp(-(v.x * v.x) / .012) * v.z * (1 - up * .4);   // a groove for the waterfall
-        const y = v.y > 0 ? Math.pow(v.y, 1.15) * H * (1 + n * .12) : v.y * 1.8;
-        pos.setXYZ(i, x + v.x * sc, y, z + v.z * sc);
-        hs[i] = y / H; ns[i] = n;
+        const key = `${v.x.toFixed(4)},${v.y.toFixed(4)},${v.z.toFixed(4)}`;
+        let out = cache.get(key);
+        if (!out) {
+          // big ridges and gullies, plus smaller crags higher up
+          const rg = ridged3(v.x * 1.7 + o, v.y * 1.7, v.z * 1.7 - o);
+          const fb = fbm3(v.x * 4.5 - o, v.y * 4.5, v.z * 4.5 + o);
+          const up = Math.max(v.y, 0);
+          const n = (rg - .42) * (.8 + up * .5) + (fb - .5) * (.25 + up * .35);
+          let sc = R * (1 - .5 * up) * (1 + n * .32);
+          if (gully && v.z > 0) sc *= 1 - .16 * Math.exp(-(v.x * v.x) / .012) * v.z * (1 - up * .4);   // a groove for the waterfall
+          const y = v.y > 0 ? Math.pow(v.y, 1.15) * H * (1 + n * .22) : v.y * 1.8;
+          out = [x + v.x * sc, y, z + v.z * sc, rg];
+          cache.set(key, out);
+        }
+        pos.setXYZ(i, out[0], out[1], out[2]);
+        hs[i] = out[1] / H; rs[i] = out[3];
       }
       smoothNormals(geo);
-      const nor = geo.attributes.normal, col = new Float32Array(pos.count * 3), c = new THREE.Color();
+      const nor = geo.attributes.normal, col = new Float32Array(pos.count * 3), c = new THREE.Color(), rock = new THREE.Color();
       for (let i = 0; i < pos.count; i++) {
-        const h = hs[i], n = ns[i], steep = 1 - nor.getY(i);
-        if (h > .84 + n * .1) c.copy(SNOW);
-        else if (steep > .55 || h > .66 + n * .15) c.copy(ROCK).lerp(FOREST, clamp(.4 - steep, 0, .3));
-        else c.copy(GRASS).lerp(FOREST, clamp(h * 1.6 + n, 0, 1));
-        c.offsetHSL(0, 0, n * .05);
+        const px = pos.getX(i), py = pos.getY(i), pz = pos.getZ(i);
+        const h = hs[i], steep = 1 - nor.getY(i), f = fbm3(px * 2.2, py * 2.2, pz * 2.2, 3), g2 = noise3(px * 7, py * 7, pz * 7);
+        // rock: grey with warmer and darker streaks, and layers
+        rock.copy(ROCK).lerp(ROCK_WARM, sstep(.45, .75, f)).lerp(ROCK_DARK, sstep(.5, .9, g2) * .5);
+        rock.multiplyScalar(.9 + .1 * Math.sin(py * 13 + f * 5));
+        // plants: meadow at the foot, thick forest on the slopes, thinning out to scree up high
+        c.copy(MEADOW).lerp(FOREST, sstep(.1, 1, py + (f - .5) * .4));
+        c.lerp(SCREE, sstep(2.2, 2.9, py + (f - .5) * .6) * .8);
+        // bare rock on cliffs and high up
+        c.lerp(rock, clamp(sstep(.45, .68, steep + (g2 - .5) * .2) + sstep(2.7, 3.4, py + (f - .5) * .5), 0, 1));
+        // snow on the top of the tallest peak, and caught on flatter ledges just below it
+        const snowLine = 3.6 + (f - .5) * .5;
+        const snow = sstep(snowLine - .1, snowLine + .15, py) * (1 - sstep(.55, .75, steep)) + sstep(snowLine - .9, snowLine - .4, py) * sstep(.3, .12, steep) * sstep(.55, .7, g2);
+        c.lerp(SNOW.clone().lerp(SNOW_SHADE, sstep(.2, .6, steep)), clamp(snow, 0, 1));
+        // creases are a little darker, like shade in the gullies; wet dark rock at the water
+        c.multiplyScalar(.86 + .2 * rs[i]);
+        if (py < .04) c.lerp(ROCK_DARK, sstep(.04, -.2, py) * .8);
         col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
       }
       geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-      const m = new THREE.Mesh(geo, vcSoft);
+      const m = new THREE.Mesh(geo, mountMat);
       m.castShadow = true; m.receiveShadow = true;
       g.add(m); rocks.push(m);
     };
@@ -1469,18 +1596,29 @@
     const rc = new THREE.Raycaster(), down = new THREE.Vector3(0, -1, 0);
     // a forest on the lower and middle slopes, merged into one mesh so it costs almost nothing to draw
     const forest = new THREE.Group(), tr = rngSeed(91);
-    for (let tries = 0; tries < 400 && forest.children.length < 70; tries++) {
+    for (let tries = 0; tries < 600 && forest.children.length < 95; tries++) {
       const a = tr() * Math.PI * 2, d = Math.sqrt(tr()) * 5.2;
       const x = cx + Math.cos(a) * d * 1.3, z = cz - .6 + Math.sin(a) * d * .8;
       if (Math.abs(x - cx) < .6 && z > cz + .8) continue;   // keep the waterfall clear
       rc.set(new THREE.Vector3(x, 12, z), down);
       const hit = rc.intersectObjects(rocks)[0];
-      if (!hit || hit.point.y < .1 || hit.point.y > 2.1 || hit.face.normal.y < .55) continue;
+      if (!hit || hit.point.y < .1 || hit.point.y > 2.1 || hit.face.normal.y < .62) continue;
       const pine = tr() < .7;
       const t = (pine ? makePine : makeTree)(rngSeed(tries * 7 + 3));
       t.scale.multiplyScalar(.55 + tr() * .35);
       t.position.copy(hit.point).y -= .04;
       forest.add(t);
+    }
+    for (let tries = 0, made = 0; tries < 300 && made < 28; tries++) {
+      const a = tr() * Math.PI * 2, d = Math.sqrt(tr()) * 5.4;
+      const x = cx + Math.cos(a) * d * 1.3, z = cz - .6 + Math.sin(a) * d * .8;
+      if (Math.abs(x - cx) < .6 && z > cz + .8) continue;
+      rc.set(new THREE.Vector3(x, 12, z), down);
+      const hit = rc.intersectObjects(rocks)[0];
+      if (!hit || hit.point.y < .05 || hit.point.y > 2.6) continue;
+      made++;
+      const b = ball(forest, .08 + tr() * .16, ['#8a8275', '#757065', '#9b9282'][made % 3], hit.point.x, hit.point.y + .02, hit.point.z, 0);
+      b.scale.set(1 + tr() * .5, .6 + tr() * .4, 1 + tr() * .4); b.rotation.set(tr(), tr() * 6, tr());
     }
     g.add(bake(forest));
     // the waterfall follows the gully all the way down into the lake
@@ -1605,7 +1743,6 @@
 
   /* the harbour: a wooden pier on the south beach with boats tied up and a cargo ship at the end,
      a ferry sailing round the island and a sailboat off the beach. Tap them to hear the horn */
-  const PIER = { x: -4.5, z0: N / 2 + .4, z1: N / 2 + 7 };
   function makePier() {
     const g = new THREE.Group(), y = .02, WOOD = ['#a8794d', '#9c6f45'], POST = '#6e4b2e';
     for (let z = PIER.z0, i = 0; z < PIER.z1; z += .25, i++) box(g, 1, .06, .22, WOOD[i % 2], PIER.x, y, z + .11);
