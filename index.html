@@ -111,6 +111,8 @@
     transition: transform .1s, box-shadow .1s;
   }
   .rbtn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--edge); }
+  .rbtn:disabled { opacity: .45; cursor: default; }
+  .rbtn[aria-pressed="true"] { background: var(--sun); border-color: var(--sun-edge); box-shadow: 0 4px 0 var(--sun-edge); }
   .rbtn.warn { background: var(--coral-soft); border-color: var(--coral); box-shadow: 0 4px 0 var(--coral); font-size: .72rem; width: 48px; }
   .rail .gap { height: 4px; }
 
@@ -218,6 +220,25 @@
   .cbtn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--edge); }
   .cbtn.go { background: var(--sun); border-color: var(--sun-edge); box-shadow: 0 3px 0 var(--sun-edge); }
   .cbtn.danger { background: var(--coral-soft); border-color: var(--coral); box-shadow: 0 3px 0 var(--coral); }
+  /* paint pots: wall colour on top, roof colour below */
+  .swatches { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .swatch {
+    width: 44px; height: 44px; flex: none;
+    border-radius: 50%;
+    border: 3px solid #fff;
+    box-shadow: 0 0 0 2px var(--edge), 0 3px 0 2px var(--edge);
+  }
+  .swatch[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--coral), 0 3px 0 3px var(--coral); }
+  .swatches .cbtn { flex: 0 0 auto; min-width: 64px; }
+  .name-edit { display: flex; gap: 8px; align-items: stretch; }
+  .name-edit input {
+    flex: 1 1 auto; min-width: 0;
+    font: 800 1.15rem/1.2 var(--font-display); color: var(--ink);
+    padding: 6px 10px;
+    border: 2px solid var(--edge); border-radius: 12px; background: #fff;
+    user-select: text; -webkit-user-select: text;
+  }
+  .name-edit .cbtn { flex: 0 0 52px; }
 
   /* "Pick something to build" bubble, shown while nothing is selected */
   .pick-hint {
@@ -325,6 +346,7 @@
   <div class="rail" id="rail" role="toolbar" aria-label="Look around">
     <button class="rbtn" id="home" title="Back to the village (H)" aria-label="Back to the village">🎯</button>
     <button class="rbtn" id="night" title="Day or night (N)" aria-label="Switch to night">🌙</button>
+    <button class="rbtn" id="undo" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>↩️</button>
     <button class="rbtn more-btn" id="moreBtn" title="More buttons" aria-label="More buttons" aria-expanded="false" aria-controls="railMore">⋯</button>
     <div class="rail-more" id="railMore">
       <button class="rbtn" id="rotL" title="Spin town left (Q)" aria-label="Spin town left">⟲</button>
@@ -333,6 +355,8 @@
       <button class="rbtn" id="zoomOut" title="Zoom out (−)" aria-label="Zoom out">−</button>
       <div class="gap"></div>
       <button class="rbtn" id="turn" title="Turn the building (R)" aria-label="Turn the building">↪︎</button>
+      <button class="rbtn" id="weather" title="Change the weather (W)" aria-label="Make it rain">☀️</button>
+      <button class="rbtn" id="music" title="Music on or off" aria-label="Turn music on" aria-pressed="false">🎵</button>
       <button class="rbtn" id="mute" title="Sound and voice on or off" aria-label="Turn sound and voice off">🔊</button>
       <button class="rbtn" id="clear" title="Start a new empty town" aria-label="Start a new empty town">🗑️</button>
     </div>
@@ -349,9 +373,23 @@
     </div>
     <div class="card-actions" id="cardActions">
       <button class="cbtn go" id="cAgain"><span class="ico">🎉</span>Again!</button>
+      <button class="cbtn" id="cPaint"><span class="ico">🎨</span>Paint</button>
+      <button class="cbtn" id="cGrow"><span class="ico">⭐</span>Grow</button>
+      <button class="cbtn" id="cSwap"><span class="ico">🔄</span>Change</button>
+      <button class="cbtn" id="cFriend"><span class="ico">❤️</span>Friend</button>
+      <button class="cbtn" id="cRide"><span class="ico">🎢</span>Ride</button>
+      <button class="cbtn" id="cName"><span class="ico">✏️</span>Name</button>
+    </div>
+    <div class="card-actions" id="cardActions2">
       <button class="cbtn" id="cMove"><span class="ico">✋</span>Move</button>
       <button class="cbtn" id="cTurn"><span class="ico">↪️</span>Turn</button>
       <button class="cbtn danger" id="cRemove"><span class="ico">🗑️</span>Remove</button>
+    </div>
+    <div class="swatches" id="paintRow" hidden></div>
+    <div class="name-edit" id="nameRow" hidden>
+      <input id="nameIn" maxlength="16" placeholder="Type a name" aria-label="Name" spellcheck="false" autocomplete="off">
+      <button class="cbtn" id="nameDice" aria-label="Pick a name for me"><span class="ico">🎲</span></button>
+      <button class="cbtn go" id="nameOk" aria-label="Done"><span class="ico">✔️</span></button>
     </div>
     <div class="card-actions" id="moveActions" hidden>
       <button class="cbtn" id="cMoveTurn"><span class="ico">↪️</span>Turn</button>
@@ -733,6 +771,7 @@
     bush(g, r, .38, .36); bush(g, r, -.38, .3, .06); bush(g, r, .38, -.2, .06);
     fence(g, -.16);
     g.userData.title = `The ${pick(r, FAMILIES)} family’s house`;
+    g.userData.paint = { wall, roof: roofC };
     return g;
   }
   function makeCottage(r) {
@@ -751,6 +790,7 @@
     bush(g, r, .36, .36); bush(g, r, .2, .38, .05); bush(g, r, -.37, .34, .06);
     fence(g, -.12);
     g.userData.title = `The ${pick(r, FAMILIES)} family’s cottage`;
+    g.userData.paint = { wall, roof: roofC };
     return g;
   }
   function makeFlats(r) {
@@ -777,6 +817,7 @@
     for (const x of [-.24, .24]) win(g, .12, .12, x, .26, .38);
     bush(g, r, -.42, .42, .05); bush(g, r, .42, .42, .05);
     g.userData.title = `${pick(r, ['Maple', 'Sunrise', 'Rainbow', 'Oak', 'Bluebell', 'Hilltop'])} Flats`;
+    g.userData.paint = { wall: c, roof: acc };
     return g;
   }
   function makeCastle(r) {
@@ -1080,6 +1121,7 @@
   const PANTS = ['#2f5fa8', '#34495e', '#6d4c41', '#3d7a5a', '#4a4a6a'];
   const hitMat = new THREE.MeshBasicMaterial({ visible: false });
   const hitGeo = new THREE.BoxGeometry(.32, .5, .32);
+  const petHitGeo = new THREE.BoxGeometry(.42, .38, .5);
   function makeResident(r, { kid = false, royal = false } = {}) {
     const g = new THREE.Group();
     const skinHex = pick(r, SKINS), skin = soft(skinHex), hair = soft(pick(r, HAIRS));
@@ -2365,6 +2407,7 @@
   }
   const SAND = sandTextures();
 
+  const snowMats = [];   // ground that turns white when it snows
   function makeBoard() {
     const S = 2048, t = S / N;
     const cv = document.createElement('canvas'); cv.width = cv.height = S;
@@ -2408,6 +2451,7 @@
     const tex = new THREE.CanvasTexture(cv);
     tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
     const top = new THREE.MeshStandardMaterial({ map: tex, roughness: 1 });
+    snowMats.push(top);
     const grassSide = mat('#57a03d'), dirt = mat('#9b6b43');
     const slab = new THREE.Mesh(new THREE.BoxGeometry(N, .14, N), [grassSide, grassSide, top, grassSide, grassSide, grassSide]);
     slab.position.y = -.07; slab.receiveShadow = true;
@@ -3103,6 +3147,78 @@
     if (o.type === 'road') DIRS.forEach(([dx, dz]) => refreshRoad(o.x + dx, o.z + dz));
   }
 
+  /* ---------- making things your own: paint, grow, change ---------- */
+  const PAINTS = [
+    { n: 'Strawberry', wall: '#ffd6e0', roof: '#e63973' }, { n: 'Sky blue', wall: '#dcefff', roof: '#2f6fd6' },
+    { n: 'Mint', wall: '#dcf7e6', roof: '#2a9d68' }, { n: 'Sunshine', wall: '#fff3b8', roof: '#f08c00' },
+    { n: 'Lavender', wall: '#ece0ff', roof: '#7b4fd6' }, { n: 'Peach', wall: '#ffe0c7', roof: '#d9534f' },
+    { n: 'Snowy', wall: '#f7f9fb', roof: '#3d4a5c' }, { n: 'Chocolate', wall: '#e8cfb0', roof: '#6b3f22' },
+  ];
+  const HOMES = new Set(['house', 'cottage', 'flats']);
+  // one tap on 🔄 turns a thing into the next one in its family (all the same size)
+  const SWAPS = [['house', 'cottage'], ['tree', 'pine', 'appletree', 'palm'], ['flowers', 'sunflowers', 'pots', 'mushrooms'],
+    ['shop', 'bakery', 'cafe', 'library', 'post'], ['bench', 'picnic'], ['hedge', 'fence'], ['boulder', 'snowman'], ['lamp', 'mailbox', 'bins']];
+  const swapsOf = type => SWAPS.find(l => l.includes(type));
+  // swap a model's baked colours (and the darker roof shades made from them) for new ones
+  function recolor(g, pairs) {
+    const from = [], to = [];
+    for (const [a, b] of pairs) for (const k of [0, .18, .22]) { from.push(new THREE.Color(mixHex(a, '#000000', k))); to.push(new THREE.Color(mixHex(b, '#000000', k))); }
+    g.traverse(o => {
+      const col = o.isMesh && o.geometry.attributes.color;
+      if (!col) return;
+      const a = col.array;
+      for (let i = 0; i < a.length; i += 3) for (let k = 0; k < from.length; k++) {
+        const f = from[k];
+        if (Math.abs(a[i] - f.r) < .003 && Math.abs(a[i + 1] - f.g) < .003 && Math.abs(a[i + 2] - f.b) < .003) { a[i] = to[k].r; a[i + 1] = to[k].g; a[i + 2] = to[k].b; break; }
+      }
+      col.needsUpdate = true;
+    });
+  }
+  // a home that has been looked after grows: ⭐ mailbox and flowers, ⭐⭐ a swing and a garden lamp, ⭐⭐⭐ a flag and balloons
+  function homeExtras(o) {
+    if (o.extras) { o.group.remove(o.extras); o.extras = null; }
+    const lv = o.level || 0;
+    if (!lv) return;
+    const g = new THREE.Group(), r = rngSeed(o.seed + 7), top = o.type === 'flats' ? 1.62 : o.type === 'house' ? .95 : .88;
+    cyl(g, .012, .012, .12, '#6b4a2b', -.4, 0, .44, 6);
+    rbox(g, .075, .055, .1, '#e63946', -.4, .12, .44, .012);
+    for (const x of [.24, .33]) { cyl(g, .028, .02, .045, '#c96a3b', x, 0, .45, 8); ball(g, .03, soft(pick(r, ['#ff5d8f', '#ffd23f', '#b388ff', '#ff8a3d'])), x, .07, .45, 1); }
+    if (lv >= 2) {
+      cyl(g, .01, .013, .24, '#2f3b52', .43, 0, -.43, 6);
+      ball(g, .026, lightMat, .43, .26, -.43, 1);
+      for (const x of [-.44, -.16]) cyl(g, .011, .011, .25, '#8b5a33', x, 0, -.45, 6);
+      box(g, .3, .016, .016, '#8b5a33', -.3, .25, -.45);
+      for (const x of [-.34, -.26]) box(g, .004, .15, .004, '#555555', x, .1, -.45);
+      box(g, .11, .012, .045, soft(pick(r, ['#e63946', '#3a86ff', '#ffbe0b'])), -.3, .1, -.45);
+    }
+    if (lv >= 3) {
+      cyl(g, .008, .008, .24, '#d9d9d9', 0, top, 0, 6);
+      box(g, .1, .065, .006, soft(pick(r, ['#e63946', '#3a86ff', '#06d6a0', '#ffbe0b'])), .052, top + .17, 0);
+      [['#ff5d8f', -.05], ['#ffd23f', .02], ['#3a86ff', .08]].forEach(([c, dx], i) => {
+        box(g, .003, .22, .003, '#888888', .12 + dx * .3, .05, .47);
+        ball(g, .04, soft(c), .12 + dx, .3 + i * .03, .47, 1).scale.set(1, 1.2, 1);
+      });
+    }
+    bake(g);
+    o.group.add(g); o.extras = g;
+  }
+  // put a thing's paint and garden back on after its model was (re)built
+  function refreshLook(o) {
+    const u = o.group.userData;
+    // always painted over the model's own colours, so a fresh model is built for each new paint
+    if (u.paint && o.paint != null && PAINTS[o.paint]) recolor(o.group, [[u.paint.wall, PAINTS[o.paint].wall], [u.paint.roof, PAINTS[o.paint].roof]]);
+    if (HOMES.has(o.type)) homeExtras(o);
+  }
+  function rebuildObj(o) {
+    scene.remove(o.group);
+    o.group = bake(ITEMS[o.type].make(rngSeed(o.seed)));
+    o.group.position.set(o.x + o.w / 2 - N / 2, 0, o.z + o.h / 2 - N / 2);
+    o.group.rotation.y = o.rot * Math.PI / 2;
+    scene.add(o.group);
+    o.extras = null;
+    refreshLook(o);
+  }
+
   function addMover(type, x, z, seed, animate = true, make = it => it.make) {
     const it = ITEMS[type];
     const g = bake(make(it)(rngSeed(seed)));
@@ -3116,7 +3232,10 @@
       base: g.scale.x, state: 'out', waveT: 0, walkK: 0, blink: Math.random() * 3,
     };
     g.position.copy(m.pos);
+    g.rotation.order = 'YXZ';   // so tricks tip and roll them around their own body
     g.rotation.y = m.yaw;
+    // small animals get a bigger, invisible target so little fingers can tap them
+    if (!it.vehicle && !it.person) { const hit = new THREE.Mesh(petHitGeo, hitMat); hit.position.y = .16; g.add(hit); }
     if (perf.low && it.person) g.traverse(o => { o.castShadow = false; });
     scene.add(g);
     movers.push(m);
@@ -3137,6 +3256,17 @@
       if (!p) return null;
       if (!stepOk(m.to, p) || Math.abs(p.x - m.to.x) + Math.abs(p.z - m.to.z) !== 1) { m.path = null; return null; }   // the way got blocked: plan again
       return m.path.shift();
+    }
+    // a pet with a best friend walks along with them
+    if (m.owner) {
+      const w = m.owner;
+      if (!movers.includes(w)) m.owner = null;
+      else if (w.g.visible && w.state === 'out' && !w.carried) {
+        const p = moverTile(w);
+        if (Math.abs(p.x - m.to.x) + Math.abs(p.z - m.to.z) <= 1) return null;
+        const path = findPath(m.to, p);
+        if (path && path.length > 1) return path[0];
+      }
     }
     const ok = m.it.vehicle ? p => isRoad(p.x, p.z) : p => stepOk(m.to, p);
     const opts = DIRS.map(([dx, dz]) => ({ x: m.to.x + dx, z: m.to.z + dz })).filter(ok);
@@ -3278,7 +3408,13 @@
     whistle: () => { tone(2400, 2300, .12, 'sine', .07); tone(2400, 2300, .4, 'sine', .07, .18); },
     kick: () => tone(170, 60, .12, 'triangle', .18),
     sparkle: () => { [1568, 2093, 2637].forEach((f, i) => tone(f, f * 1.01, .2, 'sine', .06, i * .08)); },
+    undo: () => { tone(880, 440, .14, 'sine', .09); tone(440, 330, .14, 'sine', .07, .1); },
+    purr: () => { for (let i = 0; i < 7; i++) tone(62, 55, .11, 'sawtooth', .035, i * .13); },
+    paint: () => { tone(900, 1400, .08, 'sine', .07); tone(1200, 1800, .1, 'sine', .06, .07); },
+    grow: () => { [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, f, .16, 'sine', .08, i * .09)); },
   };
+  // a tiny buzz on phones that can (most Android phones; iPhones ignore it)
+  const buzz = p => { try { if (!muted && navigator.vibrate) navigator.vibrate(p); } catch (e) { /* not supported */ } };
 
   /* ---------- voice: says what kids pick and build ---------- */
   const canSpeak = 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
@@ -3449,23 +3585,35 @@
   nameEl.addEventListener('keydown', e => { if (e.key === 'Enter') nameEl.blur(); e.stopPropagation(); });
 
   /* ---------- save / load ---------- */
+  // paint (p), how much a home has grown (u) and a name (n), when a child has given them
+  const lookOf = o => ({ ...(o.paint != null ? { p: o.paint } : {}), ...(o.level ? { u: o.level } : {}), ...(o.name ? { n: o.name } : {}) });
+  function setLook(o, d) {
+    if (Number.isInteger(d.p) && PAINTS[d.p]) o.paint = d.p;
+    if (d.u) o.level = clamp(d.u | 0, 0, 3);
+    if (typeof d.n === 'string' && d.n.trim()) o.name = d.n.trim().slice(0, 16);
+    if (o.group && (o.paint != null || o.level)) refreshLook(o);
+  }
   function serialize() {
-    const list = [...objs].map(o => ({ t: o.type, x: o.x, z: o.z, r: o.rot, s: o.seed, ...(o.cross || o.light ? { f: (o.cross ? 'x' : '') + (o.light ? 'l' : '') } : {}) }));
-    if (moving) list.push({ t: moving.type, x: moving.x, z: moving.z, r: moving.r0, s: moving.seed });
+    const list = [...objs].map(o => ({ t: o.type, x: o.x, z: o.z, r: o.rot, s: o.seed, ...(o.cross || o.light ? { f: (o.cross ? 'x' : '') + (o.light ? 'l' : '') } : {}), ...lookOf(o) }));
+    if (moving) list.push({ t: moving.type, x: moving.x, z: moving.z, r: moving.r0, s: moving.seed, ...lookOf(moving) });
+    const ml = movers.filter(m => !m.temp && !m.resident);
+    const rl = movers.filter(m => m.resident && m.state !== 'leave' && m.state !== 'gone' && (m.home || (moving && moving.residents.includes(m))));
+    // a pet's friend is saved as ['m', i] (the i-th saved mover) or ['r', i] (the i-th resident)
+    const ref = w => { const i = ml.indexOf(w), j = rl.indexOf(w); return i >= 0 ? ['m', i] : j >= 0 ? ['r', j] : null; };
+    const extra = m => ({ ...(m.name ? { n: m.name } : {}), ...(m.owner && ref(m.owner) ? { o: ref(m.owner) } : {}) });
     return {
       v: 2,
       size: N,
       name: nameEl.value,
       night: night,
+      w: weather,
       objs: list,
-      movers: movers.filter(m => !m.temp && !m.resident).map(m => { const p = moverTile(m); return { t: m.type, x: p.x, z: p.z, s: m.seed }; }),
+      movers: ml.map(m => { const p = moverTile(m); return { t: m.type, x: p.x, z: p.z, s: m.seed, ...extra(m) }; }),
       // residents only remember their home's corner tile; the 3D people are rebuilt on load
-      residents: movers.filter(m => m.resident && m.state !== 'leave' && m.state !== 'gone').map(m => {
-        const h = m.home || (moving && moving.residents.includes(m) ? moving : null);
-        if (!h) return null;
-        const p = moverTile(m);
-        return { t: m.type, h: [h.x, h.z], s: m.seed, x: p.x, z: p.z, in: m.state === 'out' ? 0 : 1 };
-      }).filter(Boolean),
+      residents: rl.map(m => {
+        const h = m.home || moving, p = moverTile(m);
+        return { t: m.type, h: [h.x, h.z], s: m.seed, x: p.x, z: p.z, in: m.state === 'out' ? 0 : 1, ...extra(m) };
+      }),
     };
   }
   let saveTimer = 0;
@@ -3476,6 +3624,33 @@
       try { localStorage.setItem(SAVE_KEY, JSON.stringify(serialize())); } catch (e) { /* storage unavailable */ }
     }, 400);
   }
+  /* ---------- undo ---------- */
+  // the town is remembered just before each change, so ↩️ can put it back (up to 30 steps)
+  const undoStack = [];
+  const undoBtn = document.getElementById('undo');
+  const updateUndo = () => { undoBtn.disabled = !undoStack.length; };
+  function checkpoint() {
+    const s = JSON.stringify(serialize());
+    if (undoStack[undoStack.length - 1] !== s) { undoStack.push(s); if (undoStack.length > 30) undoStack.shift(); }
+    updateUndo();
+  }
+  function undo() {
+    if (moving) { cancelMove(); return; }
+    const now = JSON.stringify(serialize());
+    while (undoStack.length && undoStack[undoStack.length - 1] === now) undoStack.pop();
+    const s = undoStack.pop();
+    updateUndo();
+    if (!s) { sfx.nope(); toast('Nothing to undo yet!', 1400); return; }
+    closeCard(); follow = null;
+    const d = JSON.parse(s);
+    d.night = night; d.w = weather;   // undo puts things back, not the sky
+    loadTown(d);
+    sfx.undo(); buzz(10);
+    toast('Oops! Put back. ↩️', 1400);
+    changed();
+  }
+  undoBtn.onclick = () => { ensureAudio(); undo(); };
+
   function clearTown() {
     for (const o of [...objs]) { scene.remove(o.group); objs.delete(o); }
     cells.fill(null);
@@ -3496,18 +3671,27 @@
       const p = placeObj(o.t, o.x, o.z, o.r || 0, o.s, animate);
       // roads remember a zebra crossing (x) and traffic lights (l)
       if (p && o.t === 'road' && typeof o.f === 'string') { p.cross = o.f.includes('x'); p.light = o.f.includes('l') && !isWater(p.x, p.z); refreshRoad(p.x, p.z); }
+      if (p) setLook(p, o);
     }
-    for (const m of data.movers || []) if (ITEMS[m.t]) addMover(m.t, m.x, m.z, m.s, animate);
+    const named = (m, d) => { if (m && typeof d.n === 'string' && d.n.trim()) m.name = d.n.trim().slice(0, 16); return m; };
+    const made = (data.movers || []).map(m => (ITEMS[m.t] ? named(addMover(m.t, m.x, m.z, m.s, animate), m) : null));
+    const madeR = [];
     if (Array.isArray(data.residents)) {
       for (const r of data.residents) {
+        madeR.push(null);
         const o = r && Array.isArray(r.h) ? cellAt(r.h[0], r.h[1]) : null;
         // skip anyone whose home is gone or isn't a home any more
         if (!o || !RESIDENTS[o.type] || o.x !== r.h[0] || o.z !== r.h[1] || (r.t !== 'kid' && r.t !== 'adult')) continue;
         if (residentsOf(o).length >= RESIDENTS[o.type] || movers.filter(m => m.resident).length >= MAX_RESIDENTS) continue;
-        addResident(o, { t: r.t, s: r.s | 0, x: r.x | 0, z: r.z | 0, inside: !!r.in || !!data.night });
+        madeR[madeR.length - 1] = named(addResident(o, { t: r.t, s: r.s | 0, x: r.x | 0, z: r.z | 0, inside: !!r.in || !!data.night }), r);
       }
     } else for (const o of objs) moveIn(o, false);   // towns saved before residents: everyone gets a family
+    // pets remember their friends
+    const byRef = r => (Array.isArray(r) ? (r[0] === 'm' ? made : madeR)[r[1]] || null : null);
+    (data.movers || []).forEach((d, i) => { if (made[i] && d.o) made[i].owner = byRef(d.o); });
+    (Array.isArray(data.residents) ? data.residents : []).forEach((d, i) => { if (madeR[i] && d && d.o) madeR[i].owner = byRef(d.o); });
     setNight(!!data.night, true);
+    setWeather(['rain', 'snow'].includes(data.w) ? data.w : 'sun', true);
     updateStats();
   }
   function starterTown() {
@@ -3570,10 +3754,10 @@
   };
   const skyAt = (key, k) => (k < .5 ? mixHex(SKY[key][0], SKY[key][1], k * 2) : mixHex(SKY[key][1], SKY[key][2], (k - .5) * 2));
   function applyLighting(time) {
-    const k = nightK;
-    sun.intensity = .9 - .73 * k;
+    const k = nightK, grey = rainK * .38 + snowK * .12;
+    sun.intensity = (.9 - .73 * k) * (1 - grey);
     sun.color.set(skyAt('sun', k));
-    hemi.intensity = .78 - .48 * k;
+    hemi.intensity = (.78 - .48 * k) * (1 - rainK * .18);
     hemi.color.set(skyAt('hemi', k));
     winMat.emissiveIntensity = k * .95;
     lightMat.emissiveIntensity = k * 1.6;
@@ -3581,9 +3765,186 @@
     starMat.opacity = k;
     flyMat.opacity = k * (.55 + .45 * Math.sin(time * 3));
     waterUniforms.uNight.value = k;
-    const bottom = skyAt('bottom', k);
+    const wet = mixHex('#9aa6b4', '#e9eef4', snowK / Math.max(.001, rainK + snowK)), wk = Math.min(.6, (rainK + snowK) * .6) * (1 - k * .5);
+    const bottom = mixHex(skyAt('bottom', k), wet, wk), topC = mixHex(skyAt('top', k), wet, wk);
     scene.fog.color.set(bottom);
-    app.style.background = `linear-gradient(${skyAt('top', k)}, ${bottom})`;
+    app.style.background = `linear-gradient(${topC}, ${bottom})`;
+  }
+
+  /* ---------- weather: sun, rain (then a rainbow) and snow ---------- */
+  let weather = 'sun', rainK = 0, snowK = 0, rainbowT = 0, rainbowK = 0;
+  const weatherBtn = document.getElementById('weather');
+  const WX = { sun: ['☀️', 'Make it rain'], rain: ['🌧️', 'Make it snow'], snow: ['❄️', 'Bring back the sun'] };
+  const DROPS = 1400, FLAKES = 900, BOX = { w: 34, h: 14 };
+  const rainGeo = new THREE.BufferGeometry(), rainPos = new Float32Array(DROPS * 6);
+  rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
+  const rain = new THREE.LineSegments(rainGeo, new THREE.LineBasicMaterial({ color: 0xe4efff, transparent: true, opacity: 0, depthWrite: false }));
+  const snowGeo = new THREE.BufferGeometry(), snowPos = new Float32Array(FLAKES * 3);
+  snowGeo.setAttribute('position', new THREE.BufferAttribute(snowPos, 3));
+  const snow = new THREE.Points(snowGeo, new THREE.PointsMaterial({ color: 0xffffff, size: .26, map: puffTex, transparent: true, opacity: 0, depthWrite: false }));
+  for (const o of [rain, snow]) { o.frustumCulled = false; o.visible = false; scene.add(o); }
+  // drops and flakes live in a box that follows the camera; positions are kept as 0..1 and placed each frame
+  const rainU = new Float32Array(DROPS * 3).map(() => Math.random()), snowU = new Float32Array(FLAKES * 3).map(() => Math.random());
+  // a rainbow that stands over the town, always facing you
+  const RB = { r: 10, band: .32, back: 3, y: -3.2 };
+  const rainbow = new THREE.Group();
+  ['#ff4d4d', '#ff9f1c', '#ffe14d', '#4cd964', '#3a9bff', '#5b5bd6', '#a25bd6'].forEach((c, i) => {
+    const m = new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0, depthWrite: false, fog: false, side: THREE.DoubleSide });
+    rainbow.add(new THREE.Mesh(new THREE.TorusGeometry(RB.r - i * RB.band, RB.band / 2, 6, 64, Math.PI), m));
+  });
+  rainbow.visible = false; scene.add(rainbow);
+  // puddles on open grass while it rains
+  const puddleMat = new THREE.MeshBasicMaterial({ color: 0x8fb4d6, transparent: true, opacity: 0, depthWrite: false });
+  const puddles = [];
+  for (let i = 0; i < 14; i++) { const p = new THREE.Mesh(new THREE.CircleGeometry(.28, 18), puddleMat); p.rotation.x = -Math.PI / 2; p.visible = false; scene.add(p); puddles.push(p); }
+  function placePuddles() {
+    for (const p of puddles) {
+      for (let k = 0; k < 20; k++) {
+        const x = (Math.random() * N) | 0, z = (Math.random() * N) | 0;
+        if (cellAt(x, z) || isWater(x, z) || isRock(x, z)) continue;
+        p.position.set(x - N / 2 + .3 + Math.random() * .4, .006, z - N / 2 + .3 + Math.random() * .4);
+        p.scale.set(.6 + Math.random() * .8, .5 + Math.random() * .6, 1); p.visible = true; break;
+      }
+    }
+  }
+  const UMBRELLAS = ['#e63946', '#3a86ff', '#ffbe0b', '#8338ec', '#06d6a0', '#ff6fa8'].map(c => new THREE.MeshStandardMaterial({ color: c, roughness: .6, side: THREE.DoubleSide }));
+  function umbrellaFor(m) {
+    const g = new THREE.Group();
+    cone(g, .2, .1, UMBRELLAS[Math.abs(m.seed | 0) % UMBRELLAS.length], 0, .5, 0, 8);
+    cyl(g, .006, .006, .26, '#333333', 0, .26, 0, 5);
+    g.position.x = .06;
+    m.g.add(g); return g;
+  }
+  function setWeather(w, instant) {
+    if (weather === 'rain' && w !== 'rain' && !instant) rainbowT = 22;   // the sun comes out after rain: a rainbow!
+    weather = w;
+    if (w === 'rain') placePuddles();
+    if (instant) { rainK = w === 'rain' ? 1 : 0; snowK = w === 'snow' ? 1 : 0; rainbowT = 0; }
+    weatherBtn.textContent = WX[w][0];
+    weatherBtn.setAttribute('aria-label', WX[w][1]);
+  }
+  function cycleWeather() {
+    ensureAudio();
+    const next = { sun: 'rain', rain: 'snow', snow: 'sun' }[weather];
+    setWeather(next);
+    say(next === 'rain' ? 'Pitter patter, it’s raining!' : next === 'snow' ? 'It’s snowing! Brrr!' : 'Hello, sunshine!');
+    if (next === 'rain') tip('rainbow', 'When the rain stops, look out for a rainbow! 🌈', 2600);
+    changed();
+  }
+  weatherBtn.onclick = cycleWeather;
+  // soft rain sound: filtered noise
+  let rainNoise = null;
+  function rainSound(k) {
+    if (!ac) return;
+    if (!rainNoise) {
+      const buf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      const src = ac.createBufferSource(); src.buffer = buf; src.loop = true;
+      const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1400;
+      const g = ac.createGain(); g.gain.value = 0;
+      src.connect(f).connect(g).connect(ac.destination); src.start();
+      rainNoise = g;
+    }
+    rainNoise.gain.setTargetAtTime(muted ? 0 : k * .045, ac.currentTime, .3);
+  }
+  function stepWeather(dt, time) {
+    const ease = Math.min(1, dt * .8);
+    rainK += ((weather === 'rain' ? 1 : 0) - rainK) * ease;
+    snowK += ((weather === 'snow' ? 1 : 0) - snowK) * ease;
+    rainbowT = Math.max(0, rainbowT - dt);
+    rainbowK += ((rainbowT > 1.5 && weather !== 'rain' ? 1 : 0) - rainbowK) * Math.min(1, dt * .6);
+    rainSound(rainK);
+    // the box of rain follows what you're looking at and shrinks when you zoom in, so it always looks as heavy
+    const cx = cam.target.x, cz = cam.target.z, w = clamp(cam.dist * 1.3, 9, BOX.w), h = clamp(cam.dist * .6, 5, BOX.h);
+    rain.visible = rainK > .02;
+    if (rain.visible && !reduceMotion) {
+      for (let i = 0; i < DROPS; i++) {
+        const j = i * 3;
+        rainU[j + 1] = (rainU[j + 1] - dt * 1.3 + 1) % 1;
+        const x = cx + (rainU[j] - .5) * w, y = rainU[j + 1] * h, z = cz + (rainU[j + 2] - .5) * w;
+        rainPos.set([x, y, z, x + .04, y + .45, z], i * 6);
+      }
+      rainGeo.attributes.position.needsUpdate = true;
+    }
+    rain.material.opacity = rainK * .8;
+    snow.visible = snowK > .02;
+    if (snow.visible && !reduceMotion) {
+      for (let i = 0; i < FLAKES; i++) {
+        const j = i * 3;
+        snowU[j + 1] = (snowU[j + 1] - dt * .07 + 1) % 1;
+        snowPos[j] = cx + (snowU[j] - .5) * w + Math.sin(time * .8 + i) * .3;
+        snowPos[j + 1] = snowU[j + 1] * h;
+        snowPos[j + 2] = cz + (snowU[j + 2] - .5) * w + Math.cos(time * .6 + i * 1.3) * .3;
+      }
+      snowGeo.attributes.position.needsUpdate = true;
+    }
+    snow.material.opacity = snowK * .95;
+    for (const m of snowMats) { m.emissive.setRGB(.92, .95, 1); m.emissiveIntensity = snowK * .66; }
+    puddleMat.opacity = rainK * .55;
+    if (rainK < .02) for (const p of puddles) p.visible = false;
+    // umbrellas up for everyone outside while it rains
+    for (const m of movers) {
+      if (!m.it.person) continue;
+      if (rainK > .4 && !m.umb) m.umb = umbrellaFor(m);
+      else if (rainK < .3 && m.umb) { m.g.remove(m.umb); m.umb = null; }
+    }
+    rainbow.visible = rainbowK > .01;
+    if (rainbow.visible) {
+      const fx = Math.sin(cam.yaw), fz = Math.cos(cam.yaw);
+      // sized to what you're looking at, so it arches over the town whether you're zoomed in or out
+      const sc = clamp(cam.dist / 26, .35, 2);
+      rainbow.scale.setScalar(sc);
+      rainbow.position.set(cam.target.x - fx * RB.back * sc, RB.y * sc, cam.target.z - fz * RB.back * sc);
+      rainbow.rotation.y = cam.yaw;
+      for (const b of rainbow.children) b.material.opacity = rainbowK * .38 * (1 - nightK * .8);
+    }
+  }
+
+  /* ---------- music: a soft tune that wanders around a few happy chords ---------- */
+  const MUSIC_KEY = 'tiny-town-music';
+  let musicOn = false, musicNext = 0, musicBeat = 0, musicNote = 4;
+  try { musicOn = localStorage.getItem(MUSIC_KEY) === '1'; } catch (e) { /* storage unavailable */ }
+  const musicBtn = document.getElementById('music');
+  const CHORDS = [[262, 330, 392], [220, 262, 330], [175, 220, 262], [196, 247, 294]];   // C, Am, F, G
+  const SCALE = [262, 294, 330, 392, 440, 523, 587, 659, 784];                          // C major pentatonic
+  function showMusic() { musicBtn.setAttribute('aria-pressed', String(musicOn)); musicBtn.setAttribute('aria-label', musicOn ? 'Turn music off' : 'Turn music on'); }
+  musicBtn.onclick = () => {
+    ensureAudio(); musicOn = !musicOn; showMusic();
+    try { localStorage.setItem(MUSIC_KEY, musicOn ? '1' : '0'); } catch (e) { /* storage unavailable */ }
+    if (ac) musicNext = ac.currentTime + .1;
+    say(musicOn ? 'Music on!' : 'Music off');
+  };
+  showMusic();
+  function stepMusic() {
+    if (!musicOn || !ac || muted || ac.state !== 'running') return;
+    const beat = night ? .72 : .5;
+    if (musicNext < ac.currentTime) musicNext = ac.currentTime + .05;
+    while (musicNext < ac.currentTime + .25) {
+      const chord = CHORDS[Math.floor(musicBeat / 8) % 4], at = musicNext - ac.currentTime;
+      if (musicBeat % 4 === 0) tone(chord[0] / 2, chord[0] / 2, beat * 3.5, 'triangle', .035, at);
+      if (musicBeat % 2 === 0 || Math.random() < .35) {
+        musicNote = clamp(musicNote + pick(Math.random, [-2, -1, -1, 0, 1, 1, 2]), 0, SCALE.length - 1);
+        tone(SCALE[musicNote], SCALE[musicNote], beat * 1.4, 'sine', .028, at);
+      }
+      musicBeat++; musicNext += beat;
+    }
+  }
+
+  /* ---------- tips: helpful hints, each shown once on this device ---------- */
+  const TIPS_KEY = 'tiny-town-tips';
+  let tipsSeen = {};
+  try { tipsSeen = JSON.parse(localStorage.getItem(TIPS_KEY) || '{}') || {}; } catch (e) { tipsSeen = {}; }
+  function tip(key, msg, delay = 2600) {
+    if (tipsSeen[key]) return;
+    tipsSeen[key] = 1;
+    try { localStorage.setItem(TIPS_KEY, JSON.stringify(tipsSeen)); } catch (e) { /* storage unavailable */ }
+    setTimeout(() => toast('💡 ' + msg, 4500), delay);
+  }
+  // after drawing roads: if people can't get across, suggest a zebra crossing
+  function roadTip() {
+    let roads = 0, crossings = 0;
+    for (const o of objs) if (o.type === 'road') { roads++; if (o.cross) crossings++; }
+    if (roads >= 6 && !crossings && movers.some(m => m.it.person)) tip('crossing', 'People can’t walk on roads. Add a zebra crossing 🦓 from the Street tab so they can cross!', 900);
   }
 
   /* ---------- camera ---------- */
@@ -3592,7 +3953,23 @@
   const cam = { yaw: .7, yawT: .7, pitch: .82, pitchT: .82, dist: 26, distT: 26, target: HOME.clone(), targetT: HOME.clone() };
   function fitDistance() { const a = app.clientWidth / Math.max(1, app.clientHeight); return a < .8 ? 40 : a < 1.2 ? 32 : 26; }
   function goHome() { cam.targetT.copy(HOME); cam.distT = fitDistance(); cam.pitchT = .82; }
+  let follow = null;   // vehicle the camera is riding along with
+  function rideAlong(m) {
+    follow = m; cam.distT = 8; cam.pitchT = .55;
+    sfx.honk(); buzz(20);
+    toast(`All aboard the ${nameOf(m.type)}! Drag the map to get off. 🎢`, 2600);
+  }
+  function stopRide() { if (!follow) return; follow = null; cam.distT = Math.max(cam.distT, 14); cam.pitchT = .82; }
   function updateCamera(dt) {
+    if (follow) {
+      if (!movers.includes(follow)) stopRide();
+      else {
+        // sit just behind the vehicle and turn gently with it
+        cam.targetT.copy(follow.pos);
+        let d = follow.yaw + Math.PI - cam.yawT; d = Math.atan2(Math.sin(d), Math.cos(d));
+        cam.yawT += d * Math.min(1, dt * 1.2);
+      }
+    }
     const k = Math.min(1, dt * 8);
     cam.yaw += (cam.yawT - cam.yaw) * k;
     cam.pitch += (cam.pitchT - cam.pitch) * k;
@@ -3745,11 +4122,74 @@
     else if (m.type === 'icetruck') { sfx.jingle(); if (!quiet) toast('Ice cream! Who wants one? 🍦', 1600); }
     else if (SAYS[m.type]) { sfx[SAYS[m.type][0]](); if (!quiet) toast(SAYS[m.type][1], 1200); }
     else if (m.it.vehicle) sfx.honk();
-    else if (m.type === 'dog') { sfx.woof(); if (!quiet) toast('Woof woof! 🐾', 1200); }
-    else if (m.type === 'cat') { sfx.meow(); if (!quiet) toast(pick(Math.random, ['Meow! 🐱', 'Purrrr…', 'Meow meow!']), 1200); }
+    else if (m.type === 'dog') { sfx.woof(); if (!quiet) toast(m.name ? `Woof! I’m ${m.name}! 🐾` : 'Woof woof! 🐾', 1200); }
+    else if (m.type === 'cat') { sfx.meow(); if (!quiet) toast(m.name ? `Meow! I’m ${m.name}! 🐱` : pick(Math.random, ['Meow! 🐱', 'Purrrr…', 'Meow meow!']), 1200); }
     else if (m.type === 'bird') { sfx.tweet(); if (!quiet) toast(pick(Math.random, ['Tweet tweet! 🐦', 'Chirp chirp!', 'Look, I can fly!']), 1200); }
     else { sfx.hi(); m.waveT = 1.6; m.faceCam = true; if (!quiet) toast(greeting(m), 1800); }
   }
+  /* ---------- carrying, tricks ---------- */
+  function startCarry(m) {
+    checkpoint();
+    drag.carry = m; m.carried = true; m.carryFrom = { ...moverTile(m) };
+    m.path = null; m.errand = null; m.trick = null;
+    if (selMover === m) closeCard();
+    sfx.boing(); buzz(15);
+    say(m.type === 'cat' ? 'Meow?' : m.type === 'dog' ? 'Woof!' : pick(Math.random, ['Wheee!', 'Up we go!', 'Whoa!']));
+  }
+  function carryTo(e) {
+    const m = drag.carry;
+    setRay(e);
+    if (ray.ray.intersectPlane(groundPlane, hitPt)) m.pos.set(clamp(hitPt.x, -N / 2, N / 2), 0, clamp(hitPt.z, -N / 2, N / 2));
+    hover = tileFromEvent(e);
+    // green where they can be put down, red where they can't
+    hl.visible = !!hover;
+    if (hover) { hl.scale.set(1, 1, 1); hl.position.set(hover.x + .5 - N / 2, .115, hover.z + .5 - N / 2); hl.material.color.set(walkable(hover.x, hover.z) ? '#7cff8a' : '#ff5a5a'); }
+    if (ghost) ghost.visible = false;
+  }
+  function dropCarried(m, t) {
+    m.carried = false; hl.visible = false;
+    m.g.rotation.x = m.g.rotation.z = 0;
+    if (!movers.includes(m)) return;
+    const ok = t && walkable(t.x, t.z);
+    const p = ok ? t : m.carryFrom;
+    m.from = { ...p }; m.to = { ...p }; m.t = 1; m.path = null; m.wait = .8; m.jump = 1;
+    if (ok) { sfx.place(); buzz(10); }
+    else { sfx.nope(); if (t) toast(MSG[isRoad(t.x, t.z) ? 'pavement' : isWater(t.x, t.z) ? 'swim' : 'walk']); }
+    changed();
+  }
+  // hold your finger still on someone: pets do a trick, people dance, vehicles take you for a ride
+  const TRICKS = {
+    dog: [['roll', 'Roll over! Good dog! 🐶'], ['beg', 'Sit… and beg! Clever dog! 🦴'], ['spin', 'Chasing my tail! 🌀']],
+    cat: [['purr', 'Purrrrr… 💕'], ['stretch', 'A big cat stretch! 😺'], ['spin', 'Chasing a butterfly! 🦋']],
+    kid: [['dance', 'Let’s dance! 💃'], ['jump', 'Jump, jump, jump! 🎈']], adult: [['dance', 'Let’s dance! 🕺'], ['jump', 'Hooray! 🎉']],
+  };
+  function hold(m) {
+    buzz(25);
+    if (m.it.vehicle) { rideAlong(m); return; }
+    if (m.state !== 'out' || !m.g.visible) return;
+    const [kind, line] = pick(Math.random, TRICKS[m.type] || [['love', '']]);
+    m.trick = { kind, t: 0, dur: kind === 'purr' || kind === 'love' || kind === 'dance' ? 2.2 : 1.5 };
+    m.wait = Math.max(m.wait, m.trick.dur);
+    if (m.type === 'dog') sfx.woof(); else if (m.type === 'cat') (kind === 'purr' ? sfx.purr : sfx.meow)();
+    else if (m.it.person) sfx.tune(); else poke(m, true);
+    if (line) toast(line, 1600);
+    else floatEmoji('❤️', m.pos.clone().setY(.5), 2);
+  }
+  function runTrick(m, dt) {
+    const tr = m.trick; tr.t += dt;
+    const k = Math.min(1, tr.t / tr.dur), e = Math.sin(k * Math.PI);
+    if (tr.kind === 'roll') { m.g.rotation.z = k * Math.PI * 2; m.g.position.y += e * .06; }
+    else if (tr.kind === 'beg') m.g.rotation.x = -.75 * Math.min(1, e * 2);
+    else if (tr.kind === 'stretch') { m.g.rotation.x = .3 * e; m.g.scale.z = m.base * (1 + .25 * e); }
+    else if (tr.kind === 'spin' || tr.kind === 'dance') { m.g.rotation.y = m.yaw + k * Math.PI * (tr.kind === 'spin' ? 4 : 2); m.g.position.y += Math.abs(Math.sin(k * Math.PI * 4)) * .05; if (m.it.person) m.waveT = .3; }
+    else if (tr.kind === 'jump') m.g.position.y += Math.abs(Math.sin(k * Math.PI * 3)) * .22;
+    if (tr.kind === 'purr' || tr.kind === 'love' || tr.kind === 'dance') {
+      if ((tr.h = (tr.h || 0) - dt) <= 0) { tr.h = .45; floatEmoji(tr.kind === 'dance' ? '🎵' : '❤️', m.pos.clone().setY(.45)); }
+      if (tr.kind !== 'dance') m.g.scale.y = m.base * (1 + Math.sin(tr.t * 20) * .03);
+    }
+    if (k >= 1) { m.trick = null; m.g.rotation.x = m.g.rotation.z = 0; m.g.scale.setScalar(m.base); }
+  }
+
   function eraseAt(tx, tz) {
     const ms = movers.filter(m => { const p = moverTile(m); return m.g.visible && p.x === tx && p.z === tz; });
     if (ms.length) { ms.forEach(removeMover); sfx.erase(); say(`Bye bye, ${nameOf(ms[0].type)}!`); changed(); return true; }
@@ -3850,11 +4290,11 @@
       if (greet) { m.stateT = .6 + i * .7; m.greet = true; }
     }
   }
-  function comeOut(m, greet) {
-    const d = doorTile(m.home);
+  function comeOut(m, greet, from = m.home) {
+    const d = doorTile(from);
     if (!d) { m.stateT = 3; return; }   // no free tile at the door: try again later
     m.from = { ...d }; m.to = { ...d }; m.t = 1; m.path = null; m.wait = 0;
-    m.inPt = frontPoint(m.home); m.outPt = tileWorld(d.x, d.z);
+    m.inPt = frontPoint(from); m.outPt = tileWorld(d.x, d.z);
     m.pos.copy(m.inPt);
     m.state = 'exit'; m.stateT = 0; m.greet = greet || m.greet;
     m.g.visible = true; m.g.scale.setScalar(.001);
@@ -3876,11 +4316,55 @@
       floatEmoji('👋', m.pos.clone().setY(.7));
     }
   }
+  /* ---------- daily errands: kids go to school and the park, grown-ups to the shops ---------- */
+  const ERRANDS = {
+    kid: ['school', 'playground', 'library', 'icestand', 'sandbox', 'pitch', 'carousel', 'ferris', 'zoo', 'treehouse', 'fountain', 'bakery'],
+    adult: ['shop', 'bakery', 'cafe', 'post', 'library', 'station', 'farm', 'fountain', 'bench', 'picnic', 'mailbox', 'policestation'],
+  };
+  const GO_IN = new Set(['school', 'shop', 'bakery', 'cafe', 'library', 'post', 'station', 'zoo', 'policestation']);
+  const ERRAND_EMOJI = { school: '📚', playground: '🛝', library: '📖', icestand: '🍦', sandbox: '🏖️', pitch: '⚽', carousel: '🎠', ferris: '🎡', zoo: '🦁', treehouse: '🌳',
+    fountain: '💦', shop: '🛍️', bakery: '🥐', cafe: '☕', post: '✉️', station: '🚂', farm: '🐄', bench: '😌', picnic: '🥪', mailbox: '💌', policestation: '👮' };
+  function startErrand(m) {
+    const want = ERRANDS[m.type];
+    if (!want) return;
+    const near = [...objs].filter(o => want.includes(o.type) && Math.abs(o.x - m.to.x) + Math.abs(o.z - m.to.z) < 16);
+    if (!near.length) return;
+    const o = pick(Math.random, near), d = nearTile(o, walkable, true);
+    if (!d) return;
+    const path = findPath(m.to, d);
+    if (!path || !path.length || path.length > 30) return;
+    m.path = path; m.errand = o; m.wait = 0;
+  }
+  function arrive(m) {
+    const o = m.errand;
+    m.errand = null; m.path = null;
+    if (!objs.has(o)) return;
+    floatEmoji(ERRAND_EMOJI[o.type] || '😊', m.pos.clone().setY(.6));
+    if (GO_IN.has(o.type)) {
+      m.visiting = o; m.inPt = frontPoint(o); m.outPt = m.pos.clone();
+      m.state = 'enter'; m.stateT = 0;
+    } else { m.waveT = 1.2; m.wait = 2 + Math.random() * 3; }   // stay and play a while
+  }
+  // done visiting: out through the door again (or, if the place was taken away, just step out)
+  function leaveVisit(m) {
+    const o = m.visiting;
+    m.visiting = null;
+    if (objs.has(o)) { comeOut(m, false, o); if (m.state === 'exit') return; }
+    m.from = { x: o.x, z: o.z }; m.to = { ...m.from }; m.t = 1;
+    if (!walkable(o.x, o.z) && !hopOff(m)) { removeMover(m); return; }
+    m.pos.copy(tileWorld(m.to.x, m.to.z));
+    m.state = 'out'; m.g.visible = true; m.g.scale.setScalar(m.base);
+  }
+
   // the resident's day: returns true when it has moved them itself this frame
   function stepPerson(m, dt, time) {
     if (m.waveT > 0) { m.waveT -= dt; if (m.waveT <= 0) m.faceCam = false; }
     if (m.home && !objs.has(m.home)) m.home = null;
     const st = m.state;
+    if (st === 'inside' && m.visiting) {
+      if ((m.stateT -= dt) <= 0 || !objs.has(m.visiting)) leaveVisit(m);
+      return true;
+    }
     if (st === 'inside') {
       if (!m.home) {
         if (moving && moving.residents && moving.residents.includes(m)) return true;   // their house is being moved
@@ -3901,7 +4385,7 @@
       animPerson(m, dt, time, true);
       if (k < 1) return true;
       m.g.scale.setScalar(m.base);
-      if (st === 'enter') { m.state = 'inside'; m.g.visible = false; m.stateT = .5 + Math.random() * 3.5; return true; }
+      if (st === 'enter') { m.state = 'inside'; m.g.visible = false; m.stateT = m.visiting ? 3 + Math.random() * 4 : .5 + Math.random() * 3.5; return true; }
       m.state = 'out';
       if (m.greet) { m.greet = false; m.waveT = 1.8; m.faceCam = true; m.jump = 1; sfx.hi(); }
       else if (Math.random() < .5) { m.waveT = 1.2; m.faceCam = true; }
@@ -3913,7 +4397,7 @@
       return false;
     }
     // out and about: at night, head home
-    if (m.home && night && !m.goingHome) { m.goingHome = true; m.homeDelay = m.homeDelay ?? Math.random() * 2.5; }
+    if (m.home && night && !m.goingHome) { m.goingHome = true; m.homeDelay = m.homeDelay ?? Math.random() * 2.5; if (m.errand) { m.errand = null; m.path = null; } }
     if (m.goingHome) {
       if (!night) { m.goingHome = false; m.path = null; m.homeDelay = undefined; return false; }
       if (!m.path && (m.homeDelay -= dt) <= 0) {
@@ -3923,6 +4407,12 @@
         m.wait = 0;
       }
       if (m.path && !m.path.length && m.t >= 1) { m.homeDelay = undefined; goIn(m); return true; }
+      return false;
+    }
+    // in the daytime, now and then, set off somewhere
+    if (!night && !m.temp && !m.trick) {
+      if (m.errand && m.path && !m.path.length && m.t >= 1) { arrive(m); return m.state === 'enter'; }
+      if (!m.path && (m.errandT = (m.errandT ?? 5 + Math.random() * 20) - dt) <= 0) { m.errandT = 15 + Math.random() * 25; startErrand(m); }
     }
     return false;
   }
@@ -4095,16 +4585,34 @@
   const cardTitle = document.getElementById('cardTitle');
   const cardSub = document.getElementById('cardSub');
   const cardActions = document.getElementById('cardActions');
+  const cardActions2 = document.getElementById('cardActions2');
   const moveActions = document.getElementById('moveActions');
+  const paintRow = document.getElementById('paintRow');
+  const nameRow = document.getElementById('nameRow');
+  const nameIn = document.getElementById('nameIn');
+  const btn = id => document.getElementById(id);
+  let selMover = null;    // person, pet or vehicle whose card is open
+  let befriend = null;    // pet waiting for a child to tap its new friend
+  // the card shows one row at a time: 'act' (buttons), 'move', 'paint', 'name' or 'friend'
+  function cardMode(mode) {
+    cardActions.hidden = cardActions2.hidden = mode !== 'act';
+    moveActions.hidden = mode !== 'move';
+    paintRow.hidden = mode !== 'paint';
+    nameRow.hidden = mode !== 'name';
+    if (mode === 'friend') { moveActions.hidden = false; btn('cMoveTurn').hidden = true; } else btn('cMoveTurn').hidden = false;
+    btn('cCancel').lastChild.textContent = mode === 'friend' ? 'Never mind' : 'Put it back';
+  }
   function showCard(icon, title, sub, isMove) {
     cardIco.textContent = icon;
     cardTitle.textContent = title;
     cardSub.textContent = sub;
-    cardActions.hidden = !!isMove;
-    moveActions.hidden = !isMove;
+    cardMode(isMove ? 'move' : 'act');
     app.style.setProperty('--card-bottom', (trayEl.offsetHeight + 24) + 'px');
     cardEl.hidden = false;
   }
+  const show = (id, on) => { btn(id).hidden = !on; };
+  const stars = o => (o.level ? ' ' + '⭐'.repeat(o.level) : '');
+  const titleOf = o => (o.name ? o.name : o.group.userData.title || ITEMS[o.type].label) + stars(o);
   function markSelected() {
     const o = selected;
     if (!o) { selHl.visible = false; return; }
@@ -4113,20 +4621,146 @@
     selHl.position.set(o.x + o.w / 2 - N / 2, .12, o.z + o.h / 2 - N / 2);
   }
   function openCard(o) {
-    selected = o;
+    selected = o; selMover = null; befriend = null;
     const it = ITEMS[o.type];
-    showCard(it.icon, o.group.userData.title || it.label, FACTS[o.type] || '', false);
+    showCard(it.icon, titleOf(o), o.name ? (o.group.userData.title || it.label) + '. ' + (FACTS[o.type] || '') : FACTS[o.type] || '', false);
+    show('cPaint', !!o.group.userData.paint); show('cGrow', HOMES.has(o.type)); show('cSwap', !!swapsOf(o.type));
+    show('cFriend', false); show('cRide', false); show('cName', true);
+    show('cMove', true); show('cTurn', true);
+    tipsSeen.card = 1;
     markSelected();
   }
+  // tapping a person, pet or vehicle opens a smaller card for it
+  const MOVER_FACTS = {
+    dog: 'Dogs love walks, games of fetch and a good tummy rub.', cat: 'Cats nap for up to 16 hours a day!', bird: 'Birds have hollow bones, so they are light enough to fly.',
+    kid: 'Kids here go to school, the playground and the library.', adult: 'Grown-ups go to the shops, the café and the post office.',
+    car: 'Cars drive on the roads and stop at red lights.', bus: 'Buses stop at bus stops so people can get on and off.', police: 'Police cars help keep the town safe.',
+    icetruck: 'The ice cream truck plays a happy tune!', cow: 'Cows give us milk.', sheep: 'Sheep grow wool to keep warm.', horse: 'Horses can sleep standing up!',
+    chicken: 'Chickens lay eggs.', rabbit: 'Rabbits love to hop and munch carrots.', ducks: 'Baby ducks follow their mum everywhere.',
+  };
+  const friendly = m => !m.it.vehicle && !m.it.person;
+  function openMoverCard(m) {
+    selected = null; selMover = m; befriend = null;
+    const it = m.it, kind = nameOf(m.type);
+    const friend = m.owner && movers.includes(m.owner) ? ` ${m.owner.name || 'The ' + nameOf(m.owner.type)} is their best friend. ❤️` : '';
+    showCard(it.icon, m.name ? `${m.name} the ${kind}` : it.label, (MOVER_FACTS[m.type] || '') + friend, false);
+    show('cPaint', false); show('cGrow', false); show('cSwap', false);
+    show('cFriend', friendly(m)); show('cRide', !!it.vehicle); show('cName', !it.vehicle);
+    show('cMove', false); show('cTurn', false);
+    btn('cRide').querySelector('.ico').nextSibling.textContent = follow === m ? 'Get off' : 'Ride';
+    selHl.visible = true; selHl.scale.set(.7, .7, 1);
+  }
   function closeCard() {
-    selected = null;
+    selected = null; selMover = null; befriend = null;
     cardEl.hidden = true;
     selHl.visible = false;
+    nameIn.blur();
+  }
+  const reopen = () => { if (selected) openCard(selected); else if (selMover) openMoverCard(selMover); };
+
+  /* 🎨 paint pots */
+  function openPaint() {
+    const o = selected; if (!o) return;
+    paintRow.innerHTML = '';
+    PAINTS.forEach((c, i) => {
+      const b = document.createElement('button');
+      b.className = 'swatch'; b.title = c.n; b.setAttribute('aria-label', c.n);
+      b.setAttribute('aria-pressed', String(o.paint === i));
+      b.style.background = `linear-gradient(${c.wall} 0 50%, ${c.roof} 50% 100%)`;
+      b.onclick = () => {
+        if (!objs.has(o)) return;
+        checkpoint();
+        o.paint = i; rebuildObj(o); markSelected();
+        squish(o.group); sfx.paint(); buzz(10); say(c.n + '!');
+        floatEmoji('🎨', topOf(o));
+        paintRow.querySelectorAll('.swatch').forEach((s, k) => s.setAttribute('aria-pressed', String(k === i)));
+        changed();
+      };
+      paintRow.appendChild(b);
+    });
+    const done = document.createElement('button');
+    done.className = 'cbtn go'; done.innerHTML = '<span class="ico">✔️</span>Done';
+    done.onclick = () => reopen();
+    paintRow.appendChild(done);
+    cardMode('paint'); say('Pick a colour!');
+  }
+  /* ⭐ grow a home */
+  function growHome() {
+    const o = selected; if (!o || !HOMES.has(o.type)) return;
+    if ((o.level || 0) >= 3) { sfx.boing(); squish(o.group); toast('This home is all grown up! ⭐⭐⭐', 1600); return; }
+    checkpoint();
+    o.level = (o.level || 0) + 1;
+    homeExtras(o);
+    squish(o.group); sfx.grow(); buzz([10, 30, 10]);
+    floatEmoji('⭐', topOf(o), o.level);
+    toast(['', 'A mailbox and flowers! 🌸', 'A swing and a garden lamp! 🌟', 'A flag and balloons! 🎈'][o.level], 1800);
+    cardTitle.textContent = titleOf(o);
+    changed();
+  }
+  /* 🔄 change into the next thing in its family */
+  function swapSelected() {
+    const o = selected, list = o && swapsOf(o.type); if (!list) return;
+    checkpoint();
+    o.type = list[(list.indexOf(o.type) + 1) % list.length];
+    if (o.type === 'shop') o.seed = newSeed();   // a different shop each time round
+    rebuildObj(o); markSelected();
+    squish(o.group); sfx.sparkle(); dust(o.x, o.z, o.w, o.h);
+    say(`Now it’s ${phraseOf(o.type, o.group)}!`);
+    openCard(o);
+    changed();
+  }
+  /* ✏️ names: typed, or picked by the dice and read out loud */
+  const NAME_IDEAS = {
+    dog: ['Buddy', 'Rex', 'Luna', 'Biscuit', 'Max', 'Daisy', 'Coco', 'Pepper', 'Scout', 'Waffles'],
+    cat: ['Whiskers', 'Mittens', 'Tiger', 'Smokey', 'Ginger', 'Pumpkin', 'Misty', 'Socks', 'Noodle'],
+    person: ['Maya', 'Leo', 'Ava', 'Omar', 'Zara', 'Noah', 'Lily', 'Sam', 'Mia', 'Ali', 'Ruby', 'Kai', 'Aisha', 'Ben'],
+    animal: ['Daisy', 'Bella', 'Clover', 'Bubbles', 'Nugget', 'Thumper', 'Buttercup', 'Patch'],
+    home: ['Sunny Side', 'Rose Cottage', 'Happy Home', 'Blue Door', 'Star House', 'Cosy Corner', 'Honey Nest', 'Rainbow Roof'],
+    place: ['Sunshine', 'Hilltop', 'Bluebell', 'Rainbow', 'Starlight', 'Happy Days'],
+  };
+  const ideasFor = () => (selMover ? NAME_IDEAS[selMover.type] || (selMover.it.person ? NAME_IDEAS.person : NAME_IDEAS.animal)
+    : HOMES.has(selected?.type) ? NAME_IDEAS.home : NAME_IDEAS.place);
+  function openName() {
+    const t = selected || selMover; if (!t) return;
+    nameIn.value = t.name || '';
+    cardMode('name'); say('What’s the name?');
+    if (!matchMedia('(pointer: coarse)').matches) nameIn.focus();
+  }
+  function saveName(v) {
+    const t = selected || selMover; if (!t) return;
+    const n = v.trim().slice(0, 16);
+    if (n !== (t.name || '')) { checkpoint(); t.name = n || undefined; changed(); }
+    if (n) { say(n + '!'); floatEmoji('✨', selected ? topOf(selected) : t.pos.clone().setY(.6)); sfx.sparkle(); }
+    nameIn.blur(); reopen();
+  }
+  btn('nameDice').onclick = () => {
+    const pool = ideasFor().filter(n => n !== nameIn.value);
+    nameIn.value = pick(Math.random, pool); sfx.boing(); say(nameIn.value);
+  };
+  btn('nameOk').onclick = () => saveName(nameIn.value);
+  nameIn.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Enter') saveName(nameIn.value); if (e.key === 'Escape') reopen(); });
+  /* ❤️ a pet picks a friend: the next person you tap */
+  function startFriend() {
+    const m = selMover; if (!m) return;
+    befriend = m;
+    cardTitle.textContent = 'Tap a person!';
+    cardSub.textContent = `Who should be ${m.name || 'the ' + nameOf(m.type)}’s best friend?`;
+    cardMode('friend'); say('Tap a person to be their best friend!');
+  }
+  function makeFriends(pet, person) {
+    checkpoint();
+    pet.owner = person; pet.path = null; befriend = null;
+    sfx.grow(); buzz([10, 30, 10]);
+    floatEmoji('❤️', pet.pos.clone().setY(.5), 3);
+    toast(`${pet.name || 'The ' + nameOf(pet.type)} and ${person.name || 'the ' + nameOf(person.type)} are best friends now! ❤️`, 2400);
+    openMoverCard(pet);
+    changed();
   }
   function turnSelected() {
     const o = selected; if (!o) return;
     const it = ITEMS[o.type], nr = (o.rot + 1) % 4;
     const [w, h] = footprint(it, nr);
+    checkpoint();
     for (let dz = 0; dz < o.h; dz++) for (let dx = 0; dx < o.w; dx++) cells[idx(o.x + dx, o.z + dz)] = null;
     let free = true;
     for (let dz = 0; dz < h && free; dz++) for (let dx = 0; dx < w; dx++) if (!inB(o.x + dx, o.z + dz) || cells[idx(o.x + dx, o.z + dz)]) { free = false; break; }
@@ -4141,7 +4775,8 @@
   function startMove() {
     const o = selected; if (!o) return;
     const it = ITEMS[o.type];
-    moving = { type: o.type, seed: o.seed, rot: o.rot, r0: o.rot, x: o.x, z: o.z, residents: residentsOf(o) };
+    checkpoint();
+    moving = { type: o.type, seed: o.seed, rot: o.rot, r0: o.rot, x: o.x, z: o.z, residents: residentsOf(o), paint: o.paint, level: o.level, name: o.name };
     moving.residents.forEach(m => { m.home = null; });
     removeObj(o);
     selected = null; selHl.visible = false;
@@ -4155,7 +4790,7 @@
     const a = anchorFor(it, tx, tz, moving.rot);
     const m = moving; moving = null;
     const o = placeObj(m.type, a.x0, a.z0, m.rot, m.seed);
-    if (o) m.residents.forEach(r => { r.home = o; });
+    if (o) { setLook(o, lookOf(m)); m.residents.forEach(r => { r.home = o; }); }
     cardEl.hidden = true;
     rebuildGhost(); sfx.place(); changed();
     if (o) squish(o.group);
@@ -4164,21 +4799,34 @@
     if (!moving) return;
     const m = moving; moving = null;
     const o = placeObj(m.type, m.x, m.z, m.r0, m.seed);
-    if (o) m.residents.forEach(r => { r.home = o; });
+    if (o) { setLook(o, lookOf(m)); m.residents.forEach(r => { r.home = o; }); }
     cardEl.hidden = true;
     rebuildGhost(); changed();
   }
   document.getElementById('cardClose').onclick = () => { if (moving) cancelMove(); else closeCard(); };
-  document.getElementById('cAgain').onclick = () => { ensureAudio(); if (selected) play(selected); };
+  document.getElementById('cAgain').onclick = () => { ensureAudio(); if (selected) play(selected); else if (selMover) poke(selMover); };
   document.getElementById('cMove').onclick = startMove;
   document.getElementById('cTurn').onclick = turnSelected;
   document.getElementById('cRemove').onclick = () => {
+    if (selMover) {
+      const m = selMover; checkpoint();
+      removeMover(m); closeCard(); sfx.erase(); say(`Bye bye, ${m.name || nameOf(m.type)}!`); changed();
+      return;
+    }
     if (!selected) return;
     const o = selected;
+    checkpoint();
     removeObj(o); evictResidents(o); closeCard(); sfx.erase(); sayBye(o); dust(o.x, o.z, o.w, o.h); changed();
+    tip('undo', 'Oops? Tap ↩️ to put it back!');
   };
+  btn('cPaint').onclick = openPaint;
+  btn('cGrow').onclick = growHome;
+  btn('cSwap').onclick = swapSelected;
+  btn('cName').onclick = openName;
+  btn('cFriend').onclick = startFriend;
+  btn('cRide').onclick = () => { const m = selMover; if (!m) return; if (follow === m) stopRide(); else rideAlong(m); openMoverCard(m); };
   document.getElementById('cMoveTurn').onclick = () => { if (moving) { moving.rot = (moving.rot + 1) % 4; positionGhost(); sfx.road(); } };
-  document.getElementById('cCancel').onclick = cancelMove;
+  document.getElementById('cCancel').onclick = () => { if (befriend) reopen(); else cancelMove(); };
 
   // a tap on the board that didn't hit a person, pet or vehicle
   function tapTile(tx, tz) {
@@ -4186,11 +4834,11 @@
     const c = cellAt(tx, tz);
     if (tool !== 'erase' && c && c.type !== 'road') {
       openCard(c);
-      say(c.group.userData.title || `The ${nameOf(c.type, c.group)}`);
+      say(c.name || c.group.userData.title || `The ${nameOf(c.type, c.group)}`);
       play(c);   // a reaction with its own message talks over the name
       return;
     }
-    if (selected) { closeCard(); if (!c) return; }
+    if (selected || selMover) { closeCard(); if (!c) return; }
     if (tool === 'look' && c && (c.light || c.cross)) {
       if (c.light) PLAYS.trafficlight(c, c.group, topOf(c));
       else { sfx.road(); squish(c.group); floatEmoji('🦓', topOf(c)); toast('Zebra crossing: look left, look right, then walk across! 🚸', 2000); }
@@ -4202,16 +4850,20 @@
   function act(tx, tz) {
     const it = ITEMS[tool];
     if (it.kind === 'look') { nudgeHint(); return; }
-    if (it.kind === 'erase') { eraseAt(tx, tz); return; }
+    // one undo step per tap, or per whole road or eraser stroke
+    if (!(drag && drag.painting && drag.cp)) { checkpoint(); if (drag && drag.painting) drag.cp = true; }
+    if (it.kind === 'erase') { if (eraseAt(tx, tz)) tip('undo', 'Oops? Tap ↩️ to put it back!'); return; }
     const why = problemAt(tx, tz);
     if (why === 'same') return;
     if (why) {
       const c = cellAt(tx, tz);
       if (why === 'taken' && c) { squish(c.group); sfx.boing(); }
       else sfx.nope();
+      buzz([20, 40, 20]);
       toast(MSG[why]);
       return;
     }
+    buzz(12);
     if (addOnHere(tx, tz)) {
       const c = cellAt(tx, tz);
       c[ROAD_ADDON[tool]] = true;
@@ -4224,6 +4876,7 @@
       if (o) dust(o.x, o.z, o.w, o.h);
       ghostSeed = newSeed(); rebuildGhost(); sfx.place();
       if (o) { say(`You built ${phraseOf(o.type, o.group)}!`); moveIn(o, true); }
+      if (o && HOMES.has(o.type)) tip('home', 'Tap your new home to meet who lives there. You can paint it too! 🎨');
     } else if (it.kind === 'road') {
       placeObj('road', tx, tz, 0, 0); sfx.road();
       if (performance.now() - lastRoadTalk > 2500) { lastRoadTalk = performance.now(); say('You built a road!'); }
@@ -4233,6 +4886,9 @@
       ghostSeed = newSeed(); rebuildGhost();
       poke(m, true);
       say(`Here comes ${phraseOf(m.type)}!`);
+      if (m.it.vehicle) tip('ride', 'Hold your finger on a car or bus to ride along! 🚗');
+      else if (m.it.person) tip('carry', 'Drag a person or a pet to carry them somewhere new!');
+      else tip('pet', 'Hold your finger on a pet to see a trick! 🐶');
     }
     markBuilt();
     changed();
@@ -4251,6 +4907,11 @@
     if (ptrs.size === 1) {
       drag = { sx: e.clientX, sy: e.clientY, lx: e.clientX, ly: e.clientY, moved: false, button: e.button, shift: e.shiftKey, painting: false, done: new Set() };
       hover = tileFromEvent(e); positionGhost();
+      const mv = !moving && !isPaintTool() && e.button === 0 ? moverFromEvent(e) : null;
+      if (mv) {
+        drag.mover = mv;
+        drag.holdT = setTimeout(() => { if (drag && drag.mover === mv && !drag.moved && !drag.carry) { drag.held = true; hold(mv); } }, 480);
+      }
       const under = hover && cellAt(hover.x, hover.z);
       const onBuilding = under && under.type !== 'road';
       if (isPaintTool() && !moving && e.button === 0 && hover && !moverFromEvent(e) && !(tool === 'road' && onBuilding)) {
@@ -4260,6 +4921,7 @@
         act(hover.x, hover.z);
       }
     } else if (ptrs.size === 2) {
+      if (drag) { clearTimeout(drag.holdT); if (drag.carry) dropCarried(drag.carry, null); }
       const [a, b] = [...ptrs.values()];
       drag = { pinch: true, d0: Math.hypot(a.x - b.x, a.y - b.y), dist0: cam.distT, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, ang: Math.atan2(b.y - a.y, b.x - a.x) };
       hl.visible = false; if (ghost) ghost.visible = false;
@@ -4289,7 +4951,14 @@
     }
     const dx = e.clientX - drag.lx, dy = e.clientY - drag.ly;
     drag.lx = e.clientX; drag.ly = e.clientY;
-    if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 7) drag.moved = true;
+    if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 7) {
+      drag.moved = true; clearTimeout(drag.holdT);
+      // dragging a person or a pet picks them up; dragging the map gets you off a ride
+      const m = drag.mover;
+      if (m && !drag.held && !m.it.vehicle && m.state === 'out' && m.g.visible && tool !== 'erase') startCarry(m);
+      else if (follow) stopRide();
+    }
+    if (drag.carry) { carryTo(e); return; }
     // drag moves around the map; right-drag (or shift-drag) spins and tilts
     if (drag.moved) {
       if (drag.button !== 2 && !drag.shift) panBy(dx, dy);
@@ -4303,10 +4972,21 @@
     ptrs.delete(e.pointerId);
     if (!drag) return;
     if (drag.pinch) { if (ptrs.size === 0) drag = null; return; }
-    if (e.type === 'pointerup' && !drag.moved && !drag.painting && drag.button === 0) {
+    clearTimeout(drag.holdT);
+    if (drag.carry) {
+      dropCarried(drag.carry, e.type === 'pointerup' ? tileFromEvent(e) : null);
+      drag = null; hover = null; positionGhost();
+      return;
+    }
+    if (drag.painting && tool === 'road') roadTip();
+    if (e.type === 'pointerup' && !drag.moved && !drag.painting && drag.button === 0 && !drag.held) {
       const m = moverFromEvent(e);
       const v = m || moving ? null : vesselFromEvent(e);
-      if (m && !moving) { if (tool === 'erase') { removeMover(m); sfx.erase(); say(`Bye bye, ${nameOf(m.type)}!`); changed(); } else poke(m); }
+      if (m && !moving) {
+        if (tool === 'erase') { checkpoint(); removeMover(m); sfx.erase(); say(`Bye bye, ${m.name || nameOf(m.type)}!`); changed(); }
+        else if (befriend && m !== befriend && m.it.person && movers.includes(befriend)) makeFriends(befriend, m);
+        else { poke(m); if (tool === 'look') openMoverCard(m); }
+      }
       else if (v) toot(v);
       else { const t = tileFromEvent(e); if (t) tapTile(t.x, t.z); }
     }
@@ -4333,7 +5013,7 @@
   document.getElementById('rotR').onclick = () => spin(1);
   document.getElementById('zoomIn').onclick = () => zoomBy(1 / 1.2);
   document.getElementById('zoomOut').onclick = () => zoomBy(1.2);
-  document.getElementById('home').onclick = goHome;
+  document.getElementById('home').onclick = () => { stopRide(); goHome(); };
   const turn = () => {
     if (moving) { moving.rot = (moving.rot + 1) % 4; positionGhost(); sfx.road(); return; }
     if (selected) { turnSelected(); return; }
@@ -4343,7 +5023,7 @@
     if (ghost && !hover) toast('Turned! Now tap where it should go.', 1400);
   };
   document.getElementById('turn').onclick = turn;
-  nightBtn.onclick = () => { ensureAudio(); setNight(!night); changed(); };
+  nightBtn.onclick = () => { ensureAudio(); setNight(!night); changed(); if (night) tip('night', 'At night everyone goes home to sleep. 😴 Tap ☀️ to wake them up!', 1200); };
   const muteBtn = document.getElementById('mute');
   muteBtn.onclick = () => {
     muted = !muted; ensureAudio();
@@ -4358,7 +5038,8 @@
     if (clearArmed) {
       clearTimeout(clearArmed); clearArmed = 0;
       clearBtn.classList.remove('warn'); clearBtn.textContent = '🗑️';
-      moving = null; closeCard();
+      if (moving) cancelMove();
+      closeCard(); checkpoint();
       clearTown(); rebuildGhost(); changed(); sfx.erase();
       toast('A fresh new island! Start building. 🌱');
       return;
@@ -4368,8 +5049,9 @@
     clearArmed = setTimeout(() => { clearArmed = 0; clearBtn.classList.remove('warn'); clearBtn.textContent = '🗑️'; }, 3000);
   };
   window.addEventListener('keydown', e => {
-    if (e.target === nameEl) return;
+    if (e.target === nameEl || e.target === nameIn) return;
     const k = e.key.toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); undo(); return; }
     if (k === 'escape') { if (moving) cancelMove(); else if (selected) closeCard(); else if (tool !== 'look') setTool('look'); setMenu(false); }
     else if (k === 'r') turn();
     else if (k === 'q') spin(-1);
@@ -4377,7 +5059,9 @@
     else if (k === '+' || k === '=') zoomBy(1 / 1.2);
     else if (k === '-' || k === '_') zoomBy(1.2);
     else if (k === 'n') { setNight(!night); changed(); }
-    else if (k === 'h') goHome();
+    else if (k === 'h') { stopRide(); goHome(); }
+    else if (k === 'u') undo();
+    else if (k === 'w') cycleWeather();
     else if (k === 'arrowleft') panBy(60, 0);
     else if (k === 'arrowright') panBy(-60, 0);
     else if (k === 'arrowup') panBy(0, 60);
@@ -4444,6 +5128,14 @@
     if (Math.random() < .6) setTimeout(() => spawnVisitor(stop, pick(Math.random, ['kid', 'adult'])), 900);
   }
   function stepMover(m, dt, time) {
+    if (m.carried) {
+      // dangling in the air under your finger
+      m.g.position.set(m.pos.x, .42 + Math.sin(time * 6) * .03, m.pos.z);
+      m.yaw += dt * .8; m.g.rotation.y = m.yaw; m.g.rotation.z = Math.sin(time * 4) * .15;
+      if (m.g.userData.legs) animPerson(m, dt, time, true);
+      if (m.g.userData.limbs) { const sw = Math.sin(time * 18) * .5; m.g.userData.limbs.forEach((l, i) => { l.rotation.x = i % 2 ? sw : -sw; }); }
+      return;
+    }
     if (m.life !== undefined) { m.life -= dt; if (m.life <= 0) { removeMover(m); return; } }
     if (m.it.person && stepPerson(m, dt, time)) return;
     if (m.it.vehicle) {
@@ -4523,8 +5215,9 @@
       const sw = Math.sin(time * BOB[m.type][0] + m.phase) * .55 * m.walkK;
       pet.limbs[0].rotation.x = pet.limbs[3].rotation.x = sw;
       pet.limbs[1].rotation.x = pet.limbs[2].rotation.x = -sw;
-      pet.tail.rotation.z = m.type === 'dog' ? Math.sin(time * (m.jump > 0 ? 30 : 16) + m.phase) * .5 : Math.sin(time * 1.6 + m.phase) * .35;
+      pet.tail.rotation.z = m.type === 'dog' ? Math.sin(time * (m.jump > 0 || m.trick ? 30 : 16) + m.phase) * .5 : Math.sin(time * 1.6 + m.phase) * .35;
     }
+    if (m.trick) runTrick(m, dt);
     if (m.g.userData.legs) animPerson(m, dt, time, moving && m.wait <= 0);
     if (m.g.userData.siren) {
       m.sirenT = Math.max(0, (m.sirenT || 0) - dt);
@@ -4666,6 +5359,9 @@
     updateTraffic(time);
     for (let i = movers.length - 1; i >= 0; i--) if (movers[i]) stepMover(movers[i], dt, time);
     ambient(dt, time);
+    stepWeather(dt, time);
+    stepMusic();
+    if (selMover) { if (!movers.includes(selMover) || !selMover.g.visible) closeCard(); else selHl.position.set(selMover.pos.x, .12, selMover.pos.z); }
     for (const o of objs) {
       const u = o.group.userData;
       if (u.duck) {
