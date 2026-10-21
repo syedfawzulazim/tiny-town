@@ -13,7 +13,8 @@ Open `index.html` in any modern browser. Nothing to install.
 - People and pets walk on the grass and pavements, not the road. Put a 🦓 zebra crossing on a road so they can cross: they wait at the kerb, and cars stop for them. Traffic lights can go right on a road too.
 - Tap a building to play with it. Homes can be painted 🎨, grown ⭐ (a mailbox, a swing, then a flag and balloons) and named ✏️. 🔄 changes a thing into another of its kind, like a house into a cottage or a tree into a pine.
 - Tap a person, pet or vehicle for its own card. Give pets and people names (🎲 picks one for you), and give a pet a ❤️ best friend to walk with.
-- Drag a person or pet to carry them. Hold your finger on a pet for a trick, on a person to make them dance, or on a car or bus to ride along.
+- Hold your finger on a person or pet to pick them up, then drag to carry them somewhere new. Put them back where they were and they do a trick. Hold a car or bus to ride along.
+- Every animal has its own voice: dogs bark, cats meow, cows moo, sheep baa, horses whinny, ducks quack (and their babies peep), and at the zoo, lions roar and elephants trumpet.
 - In the daytime, people go about their day: kids go to school and the playground, and grown-ups go to the shops and the café. At night they go home.
 - ↩️ undoes the last change. 🌧️ changes the weather (rain brings umbrellas and puddles, then a rainbow; snow turns the ground white), and 🎵 plays soft music.
 - Tap a building to play with it: the school bell rings, the hospital sends out an ambulance, the duck jumps.

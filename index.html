@@ -3378,7 +3378,76 @@
     o.connect(g).connect(ac.destination);
     o.start(t); o.stop(t + dur + .02);
   }
+  /* animal voices: a buzzy source shaped by a 'mouth' filter, with pitch slides, vibrato,
+     a wobble (tremolo) and a puff of breath, so every animal sounds like itself */
+  let noiseBuf = null;
+  function noiseSource() {
+    if (!noiseBuf) { noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+    const src = ac.createBufferSource(); src.buffer = noiseBuf; src.loop = true; return src;
+  }
+  // f: [[time, hz], …]  q: [[time, filter hz], …]  vib: [rate, depth hz]  trem: tremolo rate  breath: noise level
+  function cry({ f, dur, type = 'sawtooth', vol = .12, filter = 'bandpass', q = [[0, 1200]], Q = 2, vib, trem, breath = 0, attack = .02, delay = 0 }) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + delay;
+    const o = ac.createOscillator(), fl = ac.createBiquadFilter(), g = ac.createGain(), out = ac.createGain();
+    o.type = type; fl.type = filter; fl.Q.value = Q;
+    f.forEach(([at, hz], i) => (i ? o.frequency.exponentialRampToValueAtTime(hz, t + at) : o.frequency.setValueAtTime(hz, t)));
+    q.forEach(([at, hz], i) => (i ? fl.frequency.exponentialRampToValueAtTime(hz, t + at) : fl.frequency.setValueAtTime(hz, t)));
+    g.gain.setValueAtTime(.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + attack);
+    g.gain.setValueAtTime(vol, t + dur * .7);
+    g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+    const stops = [o];
+    if (vib) { const l = ac.createOscillator(), lg = ac.createGain(); l.frequency.value = vib[0]; lg.gain.value = vib[1]; l.connect(lg).connect(o.frequency); stops.push(l); }
+    if (trem) {
+      const l = ac.createOscillator(), lg = ac.createGain(); l.frequency.value = trem; lg.gain.value = .5; out.gain.value = .5;
+      l.connect(lg).connect(out.gain); stops.push(l);
+    }
+    o.connect(fl).connect(g).connect(out).connect(ac.destination);
+    if (breath) { const n = noiseSource(), ng = ac.createGain(); ng.gain.value = breath; n.connect(ng).connect(fl); stops.push(n); }
+    for (const x of stops) { x.start(t); x.stop(t + dur + .05); }
+  }
+  // a puff of filtered noise: snorts, sniffs, purrs (trem makes it rumble)
+  function noise(dur, vol, type = 'bandpass', hz = 1000, delay = 0, trem = 0) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + delay, n = noiseSource(), fl = ac.createBiquadFilter(), g = ac.createGain(), out = ac.createGain();
+    fl.type = type; fl.frequency.value = hz;
+    g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + .03); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+    n.connect(fl).connect(g).connect(out).connect(ac.destination);
+    const stops = [n];
+    if (trem) { const l = ac.createOscillator(), lg = ac.createGain(); l.frequency.value = trem; lg.gain.value = .5; out.gain.value = .5; l.connect(lg).connect(out.gain); stops.push(l); }
+    for (const x of stops) { x.start(t); x.stop(t + dur + .05); }
+  }
   const sfx = {
+    // dog: two short, gruff barks
+    woof: () => { for (const d of [0, .22]) { cry({ f: [[0, 330], [.04, 420], [.13, 190]], dur: .15, q: [[0, 700], [.05, 1300], [.14, 500]], Q: 1.5, breath: .5, vol: .2, attack: .008, delay: d }); } },
+    // cat: "mee-ow", the mouth opening and closing
+    meow: () => cry({ f: [[0, 560], [.18, 820], [.5, 520], [.62, 460]], dur: .65, q: [[0, 900], [.2, 2200], [.45, 1100], [.62, 700]], Q: 4, vib: [6, 12], vol: .27, attack: .05 }),
+    // cow: a long, low "mmmooo"
+    moo: () => cry({ f: [[0, 125], [.3, 150], [1.1, 105]], dur: 1.2, filter: 'lowpass', q: [[0, 350], [.35, 900], [1.1, 420]], Q: 3, vib: [4.5, 4], vol: .12, attack: .12 }),
+    // sheep: a shaky "baa-aa"
+    baa: () => cry({ f: [[0, 430], [.08, 470], [.6, 400]], dur: .65, q: [[0, 1100], [.1, 1700], [.6, 1100]], Q: 3, trem: 22, vol: .4, attack: .03 }),
+    // chicken: quick clucks, then a long "bawk"
+    cluck: () => {
+      for (let i = 0; i < 3; i++) cry({ f: [[0, 900], [.06, 600]], dur: .08, type: 'square', q: [[0, 1400]], Q: 3, vol: .2, attack: .005, delay: i * .14 });
+      cry({ f: [[0, 700], [.08, 1100], [.35, 800]], dur: .38, q: [[0, 1500], [.2, 1900]], Q: 3, vol: .25, delay: .45 });
+    },
+    // horse: a high, wobbly whinny, then a snort
+    neigh: () => { cry({ f: [[0, 700], [.12, 1250], [.8, 650]], dur: .85, q: [[0, 1800], [.8, 1200]], Q: 2.5, vib: [11, 70], vol: .25, attack: .03 }); noise(.25, .12, 'bandpass', 600, .95); },
+    // duck: nasal "quack quack"
+    quack: () => { for (const d of [0, .22]) cry({ f: [[0, 300], [.05, 330], [.15, 240]], dur: .16, q: [[0, 1100], [.15, 900]], Q: 7, breath: .25, vol: .45, attack: .01, delay: d }); },
+    // ducklings: tiny peeps
+    peep: () => { for (let i = 0; i < 3; i++) cry({ f: [[0, 2600], [.07, 3300]], dur: .08, type: 'sine', filter: 'highpass', q: [[0, 1500]], Q: 1, vol: .06, attack: .005, delay: .3 + i * .1 }); },
+    // bird: a quick bright chirp-chirp-chirp
+    tweet: () => { for (let i = 0; i < 3; i++) cry({ f: [[0, 2600], [.05, 4200], [.09, 3000]], dur: .1, type: 'sine', filter: 'highpass', q: [[0, 1500]], Q: 1, vol: .07, attack: .005, delay: i * .12 }); },
+    // rabbit: sniff-sniff and a little squeak
+    squeak: () => { noise(.06, .09, 'highpass', 3000); noise(.06, .09, 'highpass', 3000, .12); cry({ f: [[0, 1500], [.08, 2100], [.16, 1700]], dur: .17, type: 'sine', filter: 'highpass', q: [[0, 900]], Q: 1, vol: .07, delay: .3 }); },
+    // lion: a big rumbling roar
+    roar: () => { cry({ f: [[0, 90], [.25, 160], [1.1, 70]], dur: 1.2, filter: 'lowpass', q: [[0, 500], [.3, 1400], [1.1, 300]], Q: 1.5, trem: 28, breath: 1.2, vol: .16, attack: .08 }); },
+    // elephant: a trumpet
+    trumpet: () => cry({ f: [[0, 420], [.15, 780], [.7, 700]], dur: .75, type: 'square', q: [[0, 1200], [.2, 2400]], Q: 2, vib: [7, 25], vol: .14, attack: .04 }),
+    // monkey: "ooh-ooh-aah-aah"
+    monkey: () => [[0, 500, 800], [.2, 520, 820], [.4, 700, 1300], [.62, 720, 1350]].forEach(([d, a, b]) => cry({ f: [[0, a], [.12, b]], dur: .16, q: [[0, 900], [.1, 1800]], Q: 4, vol: .3, delay: d })),
     place: () => { tone(330, 660, .12); tone(660, 990, .1, 'sine', .1, .08); },
     road: () => tone(500, 560, .05, 'triangle', .08),
     erase: () => tone(600, 140, .2, 'triangle', .12),
@@ -3388,20 +3457,11 @@
     toot: () => { tone(520, 500, .16, 'triangle', .1); tone(520, 500, .2, 'triangle', .1, .22); },
     honk: () => { tone(420, 400, .12, 'square', .05); tone(420, 400, .14, 'square', .05, .16); },
     siren: () => { tone(700, 950, .25, 'sine', .08); tone(950, 700, .25, 'sine', .08, .25); },
-    meow: () => { tone(620, 820, .12, 'sawtooth', .035); tone(820, 520, .28, 'sawtooth', .035, .12); },
-    woof: () => { tone(500, 260, .09, 'sawtooth', .05); tone(500, 260, .09, 'sawtooth', .05, .15); },
     hi: () => { tone(520, 780, .12, 'sine', .1); tone(780, 1040, .12, 'sine', .08, .1); },
     knock: () => { tone(160, 110, .06, 'square', .08); tone(160, 110, .06, 'square', .08, .14); },
     bell: () => { for (let i = 0; i < 4; i++) tone(1320, 1300, .3, 'sine', .1, i * .18); },
     fanfare: () => { [523, 659, 784, 1047].forEach((f, i) => tone(f, f, i === 3 ? .4 : .14, 'triangle', .1, i * .14)); },
     chaching: () => { tone(1500, 1500, .08, 'square', .04); tone(2200, 2200, .3, 'sine', .1, .09); },
-    tweet: () => { for (let i = 0; i < 3; i++) tone(2200, 3200, .07, 'sine', .07, i * .11); },
-    quack: () => { tone(520, 300, .12, 'sawtooth', .06); tone(520, 300, .14, 'sawtooth', .06, .18); },
-    moo: () => { tone(190, 150, .75, 'sawtooth', .05); tone(95, 75, .75, 'triangle', .14); },
-    baa: () => { for (let i = 0; i < 5; i++) tone(430, 400, .07, 'sawtooth', .045, i * .065); },
-    cluck: () => { for (let i = 0; i < 3; i++) tone(950, 600, .06, 'square', .035, i * .13); },
-    neigh: () => { tone(500, 950, .25, 'sawtooth', .045); for (let i = 0; i < 4; i++) tone(900 - i * 100, 820 - i * 100, .08, 'sawtooth', .04, .22 + i * .08); },
-    roar: () => { tone(150, 70, .9, 'sawtooth', .08); tone(75, 45, .9, 'square', .05); },
     jingle: () => { [784, 659, 784, 659, 880, 784, 659, 523].forEach((f, i) => tone(f, f, .13, 'triangle', .09, i * .15)); },
     tune: () => { [523, 659, 784, 659, 523, 659, 784, 1047].forEach((f, i) => tone(f, f, .18, 'sine', .1, i * .2)); },
     chug: () => { for (let i = 0; i < 5; i++) tone(140, 90, .1, 'square', .045, i * .17); tone(700, 690, .45, 'sine', .09, .9); tone(880, 870, .45, 'sine', .06, .9); },
@@ -3409,7 +3469,7 @@
     kick: () => tone(170, 60, .12, 'triangle', .18),
     sparkle: () => { [1568, 2093, 2637].forEach((f, i) => tone(f, f * 1.01, .2, 'sine', .06, i * .08)); },
     undo: () => { tone(880, 440, .14, 'sine', .09); tone(440, 330, .14, 'sine', .07, .1); },
-    purr: () => { for (let i = 0; i < 7; i++) tone(62, 55, .11, 'sawtooth', .035, i * .13); },
+    purr: () => noise(1.2, .35, 'lowpass', 320, 0, 26),
     paint: () => { tone(900, 1400, .08, 'sine', .07); tone(1200, 1800, .1, 'sine', .06, .07); },
     grow: () => { [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, f, .16, 'sine', .08, i * .09)); },
   };
@@ -3975,9 +4035,7 @@
     cam.pitch += (cam.pitchT - cam.pitch) * k;
     cam.dist += (cam.distT - cam.dist) * k;
     cam.target.lerp(cam.targetT, k);
-    const cp = Math.cos(cam.pitch);
-    camera.position.set(cam.target.x + cam.dist * cp * Math.sin(cam.yaw), cam.dist * Math.sin(cam.pitch), cam.target.z + cam.dist * cp * Math.cos(cam.yaw));
-    camera.lookAt(cam.target);
+    placeCamera();
     // keep the sun's shadow box centred on what you're looking at
     sun.position.set(cam.target.x - 10, 22, cam.target.z + 8);   // from the side, so shadows show
     sun.target.position.copy(cam.target);
@@ -3985,6 +4043,44 @@
     const sc = sun.shadow.camera;
     if (Math.abs(sc.right - ext) > .5) { sc.left = sc.bottom = -ext; sc.right = sc.top = ext; sc.updateProjectionMatrix(); }
     scene.fog.near = cam.dist + 25; scene.fog.far = cam.dist + 95;
+  }
+  function placeCamera() {
+    const cp = Math.cos(cam.pitch);
+    camera.position.set(cam.target.x + cam.dist * cp * Math.sin(cam.yaw), cam.dist * Math.sin(cam.pitch), cam.target.z + cam.dist * cp * Math.cos(cam.yaw));
+    camera.lookAt(cam.target);
+    camera.updateMatrixWorld();
+  }
+  // while a finger is on the map the camera goes exactly where it's told (no easing), so the ground stays under the finger
+  function settleCamera() {
+    cam.target.copy(cam.targetT); cam.yaw = cam.yawT; cam.pitch = cam.pitchT; cam.dist = cam.distT;
+    placeCamera();
+  }
+  const clampTarget = () => {
+    cam.targetT.x = clamp(cam.targetT.x, -N / 2 - 2, N / 2 + 2);
+    cam.targetT.z = clamp(cam.targetT.z, -N / 2 - 2, N / 2 + 9);   // the beach and harbour are south
+  };
+  // the spot on the ground under a screen point (null if it's sky, or too far off to be useful)
+  const _g0 = new THREE.Vector3(), _g1 = new THREE.Vector3(), _g2 = new THREE.Vector3();
+  function groundAt(x, y, out) {
+    const r = canvas.getBoundingClientRect();
+    ndc.set(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    const p = ray.ray.intersectPlane(groundPlane, out);
+    return p && p.distanceTo(camera.position) < 160 ? p : null;
+  }
+  // slide the camera so the ground point g ends up under screen point (x, y)
+  function keepUnder(g, x, y) {
+    const now = groundAt(x, y, _g1);
+    if (!now) return false;
+    cam.targetT.x += g.x - now.x; cam.targetT.z += g.z - now.z;
+    clampTarget(); settleCamera();
+    return true;
+  }
+  // one finger: the ground moves exactly with the finger
+  function dragGround(x0, y0, x1, y1) {
+    settleCamera();
+    const g = groundAt(x0, y0, _g0);
+    if (!g || !keepUnder(g, x1, y1)) panBy(x1 - x0, y1 - y0);
   }
   const MIN_DIST = 7, MAX_DIST = 70;
   const zoomBy = f => { cam.distT = clamp(cam.distT * f, MIN_DIST, MAX_DIST); };
@@ -3994,8 +4090,9 @@
     dy /= Math.max(.4, Math.sin(cam.pitch));
     const rx = Math.cos(cam.yaw), rz = -Math.sin(cam.yaw);
     const fx = -Math.sin(cam.yaw), fz = -Math.cos(cam.yaw);
-    cam.targetT.x = clamp(cam.targetT.x - rx * dx * s + fx * dy * s, -N / 2 - 2, N / 2 + 2);
-    cam.targetT.z = clamp(cam.targetT.z - rz * dx * s + fz * dy * s, -N / 2 - 2, N / 2 + 9);   // the beach and harbour are south
+    cam.targetT.x -= rx * dx * s - fx * dy * s;
+    cam.targetT.z -= rz * dx * s - fz * dy * s;
+    clampTarget();
   }
 
   /* ---------- ghost preview ---------- */
@@ -4117,10 +4214,10 @@
   // quiet: sound and jump only, no talking (used right after placing, when the voice names it)
   function poke(m, quiet) {
     m.jump = 1;
-    const SAYS = { cow: ['moo', 'Moooo! 🐄'], sheep: ['baa', 'Baaa! 🐑'], horse: ['neigh', 'Neighhh! 🐴'], chicken: ['cluck', 'Cluck cluck! 🐔'], rabbit: ['boing', 'Hop hop! 🐰'], ducks: ['quack', 'Quack quack quack! 🐥'] };
+    const SAYS = { cow: ['moo', 'Moooo! 🐄'], sheep: ['baa', 'Baaa! 🐑'], horse: ['neigh', 'Neighhh! 🐴'], chicken: ['cluck', 'Cluck cluck! 🐔'], rabbit: ['squeak', 'Hop hop! 🐰'], ducks: ['quack', 'Quack quack, peep peep! 🐥'] };
     if (m.type === 'police') { sfx.siren(); m.sirenT = 3; }
     else if (m.type === 'icetruck') { sfx.jingle(); if (!quiet) toast('Ice cream! Who wants one? 🍦', 1600); }
-    else if (SAYS[m.type]) { sfx[SAYS[m.type][0]](); if (!quiet) toast(SAYS[m.type][1], 1200); }
+    else if (SAYS[m.type]) { sfx[SAYS[m.type][0]](); if (m.type === 'ducks') sfx.peep(); if (!quiet) toast(SAYS[m.type][1], 1200); }
     else if (m.it.vehicle) sfx.honk();
     else if (m.type === 'dog') { sfx.woof(); if (!quiet) toast(m.name ? `Woof! I’m ${m.name}! 🐾` : 'Woof woof! 🐾', 1200); }
     else if (m.type === 'cat') { sfx.meow(); if (!quiet) toast(m.name ? `Meow! I’m ${m.name}! 🐱` : pick(Math.random, ['Meow! 🐱', 'Purrrr…', 'Meow meow!']), 1200); }
@@ -4157,15 +4254,20 @@
     else { sfx.nope(); if (t) toast(MSG[isRoad(t.x, t.z) ? 'pavement' : isWater(t.x, t.z) ? 'swim' : 'walk']); }
     changed();
   }
-  // hold your finger still on someone: pets do a trick, people dance, vehicles take you for a ride
+  // put down where they were picked up: pets do a trick, people dance
   const TRICKS = {
     dog: [['roll', 'Roll over! Good dog! 🐶'], ['beg', 'Sit… and beg! Clever dog! 🦴'], ['spin', 'Chasing my tail! 🌀']],
     cat: [['purr', 'Purrrrr… 💕'], ['stretch', 'A big cat stretch! 😺'], ['spin', 'Chasing a butterfly! 🦋']],
     kid: [['dance', 'Let’s dance! 💃'], ['jump', 'Jump, jump, jump! 🎈']], adult: [['dance', 'Let’s dance! 🕺'], ['jump', 'Hooray! 🎉']],
   };
+  // hold your finger still on someone: vehicles take you for a ride, people and pets are picked up
   function hold(m) {
     buzz(25);
     if (m.it.vehicle) { rideAlong(m); return; }
+    if (m.state !== 'out' || !m.g.visible || tool === 'erase') return;
+    startCarry(m);
+  }
+  function trick(m) {
     if (m.state !== 'out' || !m.g.visible) return;
     const [kind, line] = pick(Math.random, TRICKS[m.type] || [['love', '']]);
     m.trick = { kind, t: 0, dur: kind === 'purr' || kind === 'love' || kind === 'dance' ? 2.2 : 1.5 };
@@ -4520,11 +4622,17 @@
       sfx.chug(); floatEmoji('🚂', top); toast('Choo choo! All aboard! 🚂', 1800);
     },
     zoo: (o, g, top) => {
-      sfx.roar(); floatEmoji(pick(Math.random, ['🦁', '🐘', '🦒', '🐒', '🦓']), top, 2);
+      // the zoo animal that pops up makes its own call
+      const [e, snd] = pick(Math.random, [['🦁', 'roar'], ['🐘', 'trumpet'], ['🐒', 'monkey'], ['🦓', 'neigh'], ['🦜', 'tweet']]);
+      sfx[snd](); floatEmoji(e, top, 2);
       toast(pick(Math.random, ['Roar! The lion says hello! 🦁', 'The elephant has a long trunk! 🐘', 'The giraffe eats leaves from tall trees! 🦒']), 2000);
       spawnVisitor(o, 'kid');
     },
-    farm: (o, g, top) => { sfx.moo(); squish(g); floatEmoji(pick(Math.random, ['🌾', '🥚', '🥛', '🐓']), top, 2); spawnVisitor(o, pick(Math.random, ['cow', 'sheep', 'chicken', 'horse'])); },
+    farm: (o, g, top) => {
+      // whoever comes out of the farm says hello in their own voice
+      const [a, e] = pick(Math.random, [['cow', '🥛'], ['sheep', '🧶'], ['chicken', '🥚'], ['horse', '🌾']]);
+      sfx[{ cow: 'moo', sheep: 'baa', chicken: 'cluck', horse: 'neigh' }[a]](); squish(g); floatEmoji(e, top, 2); spawnVisitor(o, a);
+    },
     playground: (o, g, top) => { sfx.boing(); floatEmoji(pick(Math.random, ['😄', '🎉', '🤸']), top, 2); toast('Wheee! 🎉', 1400); spawnVisitor(o, 'kid'); spawnVisitor(o, 'kid'); },
     ferris: (o, g, top) => { sfx.fanfare(); floatEmoji('🎡', top); floatEmoji('✨', top, 2); toast('Up, up, up! You can see the whole town!', 1800); },
     carousel: (o, g, top) => { sfx.tune(); g.userData.boost = 1; floatEmoji('🎶', top, 3); },
@@ -4887,8 +4995,8 @@
       poke(m, true);
       say(`Here comes ${phraseOf(m.type)}!`);
       if (m.it.vehicle) tip('ride', 'Hold your finger on a car or bus to ride along! 🚗');
-      else if (m.it.person) tip('carry', 'Drag a person or a pet to carry them somewhere new!');
-      else tip('pet', 'Hold your finger on a pet to see a trick! 🐶');
+      else if (m.it.person) tip('carry', 'Hold your finger on a person to pick them up, then drag to carry them!');
+      else tip('pet', 'Hold your finger on a pet to pick it up. Let go and it does a trick! 🐶');
     }
     markBuilt();
     changed();
@@ -4923,7 +5031,7 @@
     } else if (ptrs.size === 2) {
       if (drag) { clearTimeout(drag.holdT); if (drag.carry) dropCarried(drag.carry, null); }
       const [a, b] = [...ptrs.values()];
-      drag = { pinch: true, d0: Math.hypot(a.x - b.x, a.y - b.y), dist0: cam.distT, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, ang: Math.atan2(b.y - a.y, b.x - a.x) };
+      drag = { pinch: true, d0: Math.hypot(a.x - b.x, a.y - b.y), dist0: cam.distT, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, ang: Math.atan2(b.y - a.y, b.x - a.x), twist: 0, spinning: false };
       hl.visible = false; if (ghost) ghost.visible = false;
     }
   });
@@ -4933,14 +5041,20 @@
     if (drag.pinch) {
       if (ptrs.size < 2) return;
       const [a, b] = [...ptrs.values()];
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      // move with the fingers, then zoom and spin around the point between them, so that spot stays put
+      dragGround(drag.mx, drag.my, mx, my);
+      const g = groundAt(mx, my, _g2);
       const d = Math.hypot(a.x - b.x, a.y - b.y);
       cam.distT = clamp(drag.dist0 * drag.d0 / Math.max(d, 1), MIN_DIST, MAX_DIST);
-      // twisting two fingers spins the town
+      // twisting spins the town, but only once it's clearly a twist (so a pinch doesn't wobble)
       const ang = Math.atan2(b.y - a.y, b.x - a.x);
       let da = ang - drag.ang; da = Math.atan2(Math.sin(da), Math.cos(da));
-      cam.yawT -= da; cam.yaw = cam.yawT; drag.ang = ang;
-      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-      panBy(mx - drag.mx, my - drag.my);
+      drag.ang = ang; drag.twist += da;
+      if (!drag.spinning && Math.abs(drag.twist) > .22) { drag.spinning = true; da = drag.twist; }
+      if (drag.spinning) cam.yawT -= da;
+      settleCamera();
+      if (g) keepUnder(g, mx, my);
       drag.mx = mx; drag.my = my;
       return;
     }
@@ -4953,15 +5067,14 @@
     drag.lx = e.clientX; drag.ly = e.clientY;
     if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 7) {
       drag.moved = true; clearTimeout(drag.holdT);
-      // dragging a person or a pet picks them up; dragging the map gets you off a ride
-      const m = drag.mover;
-      if (m && !drag.held && !m.it.vehicle && m.state === 'out' && m.g.visible && tool !== 'erase') startCarry(m);
-      else if (follow) stopRide();
+      if (follow && !drag.carry) stopRide();   // dragging the map gets you off a ride
+      // the first few pixels were only "is this a drag?": move the map by those too, so it starts exactly under the finger
+      if (!drag.carry && drag.button !== 2 && !drag.shift) { dragGround(drag.sx, drag.sy, e.clientX, e.clientY); return; }
     }
     if (drag.carry) { carryTo(e); return; }
     // drag moves around the map; right-drag (or shift-drag) spins and tilts
     if (drag.moved) {
-      if (drag.button !== 2 && !drag.shift) panBy(dx, dy);
+      if (drag.button !== 2 && !drag.shift) dragGround(e.clientX - dx, e.clientY - dy, e.clientX, e.clientY);
       else {
         cam.yawT -= dx * .008; cam.yaw = cam.yawT;
         cam.pitchT = clamp(cam.pitchT + dy * .004, .45, 1.35); cam.pitch = cam.pitchT;
@@ -4971,10 +5084,18 @@
   function endPointer(e) {
     ptrs.delete(e.pointerId);
     if (!drag) return;
-    if (drag.pinch) { if (ptrs.size === 0) drag = null; return; }
+    if (drag.pinch) {
+      // one finger lifted: the other one carries on moving the map
+      if (ptrs.size === 1) { const [p] = [...ptrs.values()]; drag = { sx: p.x, sy: p.y, lx: p.x, ly: p.y, moved: true, button: 0, painting: false, done: new Set() }; }
+      else if (ptrs.size === 0) drag = null;
+      return;
+    }
     clearTimeout(drag.holdT);
     if (drag.carry) {
-      dropCarried(drag.carry, e.type === 'pointerup' ? tileFromEvent(e) : null);
+      const m = drag.carry, t = e.type === 'pointerup' ? tileFromEvent(e) : null;
+      const same = t && m.carryFrom && t.x === m.carryFrom.x && t.z === m.carryFrom.z;
+      dropCarried(m, t);
+      if (same) trick(m);   // picked up and put back down: a happy trick
       drag = null; hover = null; positionGhost();
       return;
     }
