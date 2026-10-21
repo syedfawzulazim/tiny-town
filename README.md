@@ -18,7 +18,7 @@ Open `index.html` in any modern browser. Nothing to install.
 - Farm animals come in different breeds (Holstein, Jersey and Highland cows; bay, palomino, grey and black horses; black-faced and black sheep; hens and a rooster; lop-eared rabbits; mallard ducks) and walk on moving legs.
 - Every animal has its own voice: dogs bark, cats meow, cows moo, sheep baa, horses whinny, ducks quack (and their babies peep), and at the zoo, lions roar and elephants trumpet.
 - In the daytime, people go about their day: kids go to school and the playground, and grown-ups go to the shops and the café. At night they go home.
-- ↩️ undoes the last change. 🌧️ changes the weather (rain brings umbrellas and puddles, then a rainbow; snow turns the ground white), and 🎵 plays soft music.
+- ↩️ undoes the last change and says what it put back; ↪️ does it again (Ctrl+Z, Ctrl+Y). 🌧️ changes the weather (rain brings umbrellas and puddles, then a rainbow; snow turns the ground white), and 🎵 plays soft music.
 - Tap a building to play with it: the school bell rings, the hospital sends out an ambulance, the duck jumps.
 - There's lots more to build: a bakery, café, library, police station, train station, zoo and farm; a playground, big wheel, merry-go-round and football pitch; apple trees, a veggie patch that grows, butterflies and a snowman; a lighthouse, sandcastles and beach huts; traffic lights that stop the cars, a bus stop the bus waits at, and cows, sheep, horses, chickens, rabbits and ducks.
 - Every home has its own family. They come out to play, wave when you tap them, and walk home and go inside when it gets dark. Knock on a house to call someone to the door.

@@ -112,6 +112,7 @@
   }
   .rbtn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--edge); }
   .rbtn:disabled { opacity: .45; cursor: default; }
+  .rbtn.pulse { animation: hint-nudge .8s ease; }
   .rbtn[aria-pressed="true"] { background: var(--sun); border-color: var(--sun-edge); box-shadow: 0 4px 0 var(--sun-edge); }
   .rbtn.warn { background: var(--coral-soft); border-color: var(--coral); box-shadow: 0 4px 0 var(--coral); font-size: .72rem; width: 48px; }
   .rail .gap { height: 4px; }
@@ -326,7 +327,7 @@
   }
   @media (prefers-reduced-motion: reduce) {
     .item, .rbtn, .toast { transition: none; }
-    .pick-hint, .pick-hint.nudge, .tray.idle .shelf { animation: none; }
+    .pick-hint, .pick-hint.nudge, .tray.idle .shelf, .rbtn.pulse { animation: none; }
   }
 </style>
 </head>
@@ -347,6 +348,7 @@
     <button class="rbtn" id="home" title="Back to the village (H)" aria-label="Back to the village">🎯</button>
     <button class="rbtn" id="night" title="Day or night (N)" aria-label="Switch to night">🌙</button>
     <button class="rbtn" id="undo" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>↩️</button>
+    <button class="rbtn" id="redo" title="Redo (Ctrl+Y)" aria-label="Redo" disabled>↪️</button>
     <button class="rbtn more-btn" id="moreBtn" title="More buttons" aria-label="More buttons" aria-expanded="false" aria-controls="railMore">⋯</button>
     <div class="rail-more" id="railMore">
       <button class="rbtn" id="rotL" title="Spin town left (Q)" aria-label="Spin town left">⟲</button>
@@ -354,7 +356,7 @@
       <button class="rbtn" id="zoomIn" title="Zoom in (+)" aria-label="Zoom in">＋</button>
       <button class="rbtn" id="zoomOut" title="Zoom out (−)" aria-label="Zoom out">−</button>
       <div class="gap"></div>
-      <button class="rbtn" id="turn" title="Turn the building (R)" aria-label="Turn the building">↪︎</button>
+      <button class="rbtn" id="turn" title="Turn the building (R)" aria-label="Turn the building">🔄</button>
       <button class="rbtn" id="weather" title="Change the weather (W)" aria-label="Make it rain">☀️</button>
       <button class="rbtn" id="music" title="Music on or off" aria-label="Turn music on" aria-pressed="false">🎵</button>
       <button class="rbtn" id="mute" title="Sound and voice on or off" aria-label="Turn sound and voice off">🔊</button>
@@ -375,14 +377,14 @@
       <button class="cbtn go" id="cAgain"><span class="ico">🎉</span>Again!</button>
       <button class="cbtn" id="cPaint"><span class="ico">🎨</span>Paint</button>
       <button class="cbtn" id="cGrow"><span class="ico">⭐</span>Grow</button>
-      <button class="cbtn" id="cSwap"><span class="ico">🔄</span>Change</button>
+      <button class="cbtn" id="cSwap"><span class="ico">🪄</span>Change</button>
       <button class="cbtn" id="cFriend"><span class="ico">❤️</span>Friend</button>
       <button class="cbtn" id="cRide"><span class="ico">🎢</span>Ride</button>
       <button class="cbtn" id="cName"><span class="ico">✏️</span>Name</button>
     </div>
     <div class="card-actions" id="cardActions2">
       <button class="cbtn" id="cMove"><span class="ico">✋</span>Move</button>
-      <button class="cbtn" id="cTurn"><span class="ico">↪️</span>Turn</button>
+      <button class="cbtn" id="cTurn"><span class="ico">🔄</span>Turn</button>
       <button class="cbtn danger" id="cRemove"><span class="ico">🗑️</span>Remove</button>
     </div>
     <div class="swatches" id="paintRow" hidden></div>
@@ -392,7 +394,7 @@
       <button class="cbtn go" id="nameOk" aria-label="Done"><span class="ico">✔️</span></button>
     </div>
     <div class="card-actions" id="moveActions" hidden>
-      <button class="cbtn" id="cMoveTurn"><span class="ico">↪️</span>Turn</button>
+      <button class="cbtn" id="cMoveTurn"><span class="ico">🔄</span>Turn</button>
       <button class="cbtn danger" id="cCancel"><span class="ico">↩️</span>Put it back</button>
     </div>
   </div>
@@ -3731,6 +3733,7 @@
     kick: () => tone(170, 60, .12, 'triangle', .18),
     sparkle: () => { [1568, 2093, 2637].forEach((f, i) => tone(f, f * 1.01, .2, 'sine', .06, i * .08)); },
     undo: () => { tone(880, 440, .14, 'sine', .09); tone(440, 330, .14, 'sine', .07, .1); },
+    redo: () => { tone(440, 660, .14, 'sine', .09); tone(660, 880, .14, 'sine', .07, .1); },
     purr: () => noise(1.2, .35, 'lowpass', 320, 0, 26),
     paint: () => { tone(900, 1400, .08, 'sine', .07); tone(1200, 1800, .1, 'sine', .06, .07); },
     grow: () => { [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, f, .16, 'sine', .08, i * .09)); },
@@ -3948,30 +3951,61 @@
   }
   /* ---------- undo ---------- */
   // the town is remembered just before each change, so ↩️ can put it back (up to 30 steps)
-  const undoStack = [];
-  const undoBtn = document.getElementById('undo');
-  const updateUndo = () => { undoBtn.disabled = !undoStack.length; };
-  function checkpoint() {
-    const s = JSON.stringify(serialize());
-    if (undoStack[undoStack.length - 1] !== s) { undoStack.push(s); if (undoStack.length > 30) undoStack.shift(); }
+  const undoStack = [], redoStack = [];
+  const undoBtn = document.getElementById('undo'), redoBtn = document.getElementById('redo');
+  // each step remembers what ↩️ will do, so it can say it out loud
+  const updateUndo = () => {
+    const top = undoStack[undoStack.length - 1];
+    undoBtn.disabled = !top;
+    undoBtn.title = top ? `Undo: ${top.what.toLowerCase()} (Ctrl+Z)` : 'Undo (Ctrl+Z)';
+    redoBtn.disabled = !redoStack.length;
+  };
+  let undoPulse = 0;
+  function checkpoint(what = 'Put back') {
+    const s = JSON.stringify(serialize()), top = undoStack[undoStack.length - 1];
+    if (!top || top.s !== s) { undoStack.push({ s, what }); if (undoStack.length > 30) undoStack.shift(); }
+    else top.what = what;
+    redoStack.length = 0;   // a new change starts a new story, so redo forgets
     updateUndo();
+    // a little wiggle so kids see where the oops button is
+    undoBtn.classList.remove('pulse'); void undoBtn.offsetWidth; undoBtn.classList.add('pulse');
+    clearTimeout(undoPulse); undoPulse = setTimeout(() => undoBtn.classList.remove('pulse'), 900);
   }
   function undo() {
     if (moving) { cancelMove(); return; }
     const now = JSON.stringify(serialize());
-    while (undoStack.length && undoStack[undoStack.length - 1] === now) undoStack.pop();
-    const s = undoStack.pop();
+    while (undoStack.length && undoStack[undoStack.length - 1].s === now) undoStack.pop();
+    const step = undoStack.pop();
     updateUndo();
-    if (!s) { sfx.nope(); toast('Nothing to undo yet!', 1400); return; }
-    closeCard(); follow = null;
-    const d = JSON.parse(s);
-    d.night = night; d.w = weather;   // undo puts things back, not the sky
-    loadTown(d);
+    if (!step) { sfx.nope(); toast('Nothing to undo yet!', 1400); return; }
+    redoStack.push({ s: now, what: step.what });
+    updateUndo();
+    restore(step.s);
     sfx.undo(); buzz(10);
-    toast('Oops! Put back. ↩️', 1400);
+    toast(`↩️ ${step.what}!`, 1600); say(step.what);
     changed();
   }
+  // ↪️ does the last undone thing again
+  function redo() {
+    if (moving) cancelMove();
+    const step = redoStack.pop();
+    if (!step) { sfx.nope(); toast('Nothing to redo!', 1400); return; }
+    const now = JSON.stringify(serialize());
+    if (undoStack[undoStack.length - 1]?.s !== now) undoStack.push({ s: now, what: step.what });
+    updateUndo();
+    restore(step.s);
+    sfx.redo(); buzz(10);
+    toast('↪️ Done again!', 1400); say('Done again!');
+    changed();
+  }
+  function restore(s) {
+    closeCard(); follow = null;
+    const d = JSON.parse(s);
+    d.night = night; d.w = weather;   // undo and redo put things back, not the sky
+    loadTown(d);
+  }
   undoBtn.onclick = () => { ensureAudio(); undo(); };
+  redoBtn.onclick = () => { ensureAudio(); redo(); };
 
   function clearTown() {
     for (const o of [...objs]) { scene.remove(o.group); objs.delete(o); }
@@ -4488,7 +4522,7 @@
   }
   /* ---------- carrying, tricks ---------- */
   function startCarry(m) {
-    checkpoint();
+    checkpoint(`${m.name || 'The ' + nameOf(m.type)} went back`);
     drag.carry = m; m.carried = true; m.carryFrom = { ...moverTile(m) };
     m.path = null; m.errand = null; m.trick = null;
     if (selMover === m) closeCard();
@@ -4565,6 +4599,14 @@
     }
     if (c) { removeObj(c); evictResidents(c); sfx.erase(); sayBye(c); if (c.type !== 'road') dust(c.x, c.z, c.w, c.h); changed(); return true; }
     return false;
+  }
+  // what the eraser is about to rub out, for the undo button to say
+  function erasedName(tx, tz) {
+    const m = movers.find(m => { const p = moverTile(m); return m.g.visible && p.x === tx && p.z === tz; });
+    if (m) return nameOf(m.type);
+    const c = cellAt(tx, tz);
+    if (!c) return 'town';
+    return c.light ? 'traffic light' : c.cross ? 'zebra crossing' : nameOf(c.type, c.group);
   }
   // roads are erased and drawn by dragging, so only speak once in a while
   let lastRoadTalk = 0;
@@ -5046,7 +5088,7 @@
       b.style.background = `linear-gradient(${c.wall} 0 50%, ${c.roof} 50% 100%)`;
       b.onclick = () => {
         if (!objs.has(o)) return;
-        checkpoint();
+        checkpoint('Old colours back');
         o.paint = i; rebuildObj(o); markSelected();
         squish(o.group); sfx.paint(); buzz(10); say(c.n + '!');
         floatEmoji('🎨', topOf(o));
@@ -5065,7 +5107,7 @@
   function growHome() {
     const o = selected; if (!o || !HOMES.has(o.type)) return;
     if ((o.level || 0) >= 3) { sfx.boing(); squish(o.group); toast('This home is all grown up! ⭐⭐⭐', 1600); return; }
-    checkpoint();
+    checkpoint('Home got small again');
     o.level = (o.level || 0) + 1;
     homeExtras(o);
     squish(o.group); sfx.grow(); buzz([10, 30, 10]);
@@ -5074,10 +5116,10 @@
     cardTitle.textContent = titleOf(o);
     changed();
   }
-  /* 🔄 change into the next thing in its family */
+  /* 🪄 change into the next thing in its family */
   function swapSelected() {
     const o = selected, list = o && swapsOf(o.type); if (!list) return;
-    checkpoint();
+    checkpoint(`The ${nameOf(o.type, o.group)} is back`);
     o.type = list[(list.indexOf(o.type) + 1) % list.length];
     if (o.type === 'shop') o.seed = newSeed();   // a different shop each time round
     rebuildObj(o); markSelected();
@@ -5106,7 +5148,7 @@
   function saveName(v) {
     const t = selected || selMover; if (!t) return;
     const n = v.trim().slice(0, 16);
-    if (n !== (t.name || '')) { checkpoint(); t.name = n || undefined; changed(); }
+    if (n !== (t.name || '')) { checkpoint('Old name back'); t.name = n || undefined; changed(); }
     if (n) { say(n + '!'); floatEmoji('✨', selected ? topOf(selected) : t.pos.clone().setY(.6)); sfx.sparkle(); }
     nameIn.blur(); reopen();
   }
@@ -5125,7 +5167,7 @@
     cardMode('friend'); say('Tap a person to be their best friend!');
   }
   function makeFriends(pet, person) {
-    checkpoint();
+    checkpoint('Best friend changed back');
     pet.owner = person; pet.path = null; befriend = null;
     sfx.grow(); buzz([10, 30, 10]);
     floatEmoji('❤️', pet.pos.clone().setY(.5), 3);
@@ -5137,7 +5179,7 @@
     const o = selected; if (!o) return;
     const it = ITEMS[o.type], nr = (o.rot + 1) % 4;
     const [w, h] = footprint(it, nr);
-    checkpoint();
+    checkpoint('Turned back');
     for (let dz = 0; dz < o.h; dz++) for (let dx = 0; dx < o.w; dx++) cells[idx(o.x + dx, o.z + dz)] = null;
     let free = true;
     for (let dz = 0; dz < h && free; dz++) for (let dx = 0; dx < w; dx++) if (!inB(o.x + dx, o.z + dz) || cells[idx(o.x + dx, o.z + dz)]) { free = false; break; }
@@ -5152,7 +5194,7 @@
   function startMove() {
     const o = selected; if (!o) return;
     const it = ITEMS[o.type];
-    checkpoint();
+    checkpoint(`The ${nameOf(o.type, o.group)} moved back`);
     moving = { type: o.type, seed: o.seed, rot: o.rot, r0: o.rot, x: o.x, z: o.z, residents: residentsOf(o), paint: o.paint, level: o.level, name: o.name };
     moving.residents.forEach(m => { m.home = null; });
     removeObj(o);
@@ -5186,13 +5228,13 @@
   document.getElementById('cTurn').onclick = turnSelected;
   document.getElementById('cRemove').onclick = () => {
     if (selMover) {
-      const m = selMover; checkpoint();
+      const m = selMover; checkpoint(`${m.name || 'The ' + nameOf(m.type)} is back`);
       removeMover(m); closeCard(); sfx.erase(); say(`Bye bye, ${m.name || nameOf(m.type)}!`); changed();
       return;
     }
     if (!selected) return;
     const o = selected;
-    checkpoint();
+    checkpoint(`${o.name || 'The ' + nameOf(o.type, o.group)} is back`);
     removeObj(o); evictResidents(o); closeCard(); sfx.erase(); sayBye(o); dust(o.x, o.z, o.w, o.h); changed();
     tip('undo', 'Oops? Tap ↩️ to put it back!');
   };
@@ -5228,7 +5270,10 @@
     const it = ITEMS[tool];
     if (it.kind === 'look') { nudgeHint(); return; }
     // one undo step per tap, or per whole road or eraser stroke
-    if (!(drag && drag.painting && drag.cp)) { checkpoint(); if (drag && drag.painting) drag.cp = true; }
+    if (!(drag && drag.painting && drag.cp)) {
+      checkpoint(it.kind === 'erase' ? `The ${erasedName(tx, tz)} is back` : `Took away the ${nameOf(tool)}`);
+      if (drag && drag.painting) drag.cp = true;
+    }
     if (it.kind === 'erase') { if (eraseAt(tx, tz)) tip('undo', 'Oops? Tap ↩️ to put it back!'); return; }
     const why = problemAt(tx, tz);
     if (why === 'same') return;
@@ -5373,7 +5418,7 @@
       const m = moverFromEvent(e);
       const v = m || moving ? null : vesselFromEvent(e);
       if (m && !moving) {
-        if (tool === 'erase') { checkpoint(); removeMover(m); sfx.erase(); say(`Bye bye, ${m.name || nameOf(m.type)}!`); changed(); }
+        if (tool === 'erase') { checkpoint(`${m.name || 'The ' + nameOf(m.type)} is back`); removeMover(m); sfx.erase(); say(`Bye bye, ${m.name || nameOf(m.type)}!`); changed(); }
         else if (befriend && m !== befriend && m.it.person && movers.includes(befriend)) makeFriends(befriend, m);
         else { poke(m); if (tool === 'look') openMoverCard(m); }
       }
@@ -5429,7 +5474,7 @@
       clearTimeout(clearArmed); clearArmed = 0;
       clearBtn.classList.remove('warn'); clearBtn.textContent = '🗑️';
       if (moving) cancelMove();
-      closeCard(); checkpoint();
+      closeCard(); checkpoint('Your whole town is back');
       clearTown(); rebuildGhost(); changed(); sfx.erase();
       toast('A fresh new island! Start building. 🌱');
       return;
@@ -5441,6 +5486,7 @@
   window.addEventListener('keydown', e => {
     if (e.target === nameEl || e.target === nameIn) return;
     const k = e.key.toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); redo(); return; }
     if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); undo(); return; }
     if (k === 'escape') { if (moving) cancelMove(); else if (selected) closeCard(); else if (tool !== 'look') setTool('look'); setMenu(false); }
     else if (k === 'r') turn();
