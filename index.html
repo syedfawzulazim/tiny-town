@@ -598,7 +598,7 @@
       const key = m === winMat || m === lightMat ? m : m.flatShading ? vcMat : vcSoft;
       const geo = (o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone()).applyMatrix4(_m4.multiplyMatrices(_inv, o.matrixWorld));
       if (!buckets.has(key)) buckets.set(key, []);
-      buckets.get(key).push({ geo, color: m.color });
+      buckets.get(key).push({ geo, color: m.color, vc: m.vertexColors ? geo.attributes.color : null });
       done.push(o);
     });
     for (const o of done) o.parent.remove(o);
@@ -611,7 +611,8 @@
         const a = p.geo.attributes, c = a.position.count;
         pos.set(a.position.array, off * 3);
         nor.set(a.normal.array, off * 3);
-        if (col) for (let i = 0; i < c; i++) { const j = (off + i) * 3; col[j] = p.color.r; col[j + 1] = p.color.g; col[j + 2] = p.color.b; }
+        if (col && p.vc) col.set(p.vc.array, off * 3);
+        else if (col) for (let i = 0; i < c; i++) { const j = (off + i) * 3; col[j] = p.color.r; col[j + 1] = p.color.g; col[j + 2] = p.color.b; }
         off += c;
       }
       const geo = new THREE.BufferGeometry();
@@ -1454,10 +1455,129 @@
     };
     return g;
   }
-  function makeZoo() {
+  // an animal standing still inside the zoo or farm: legs and all merged into one mesh, moved as a whole
+  function standing(make, r, x, z, ry, s = 1) {
+    const a = make(r);
+    for (const k of ['limbs', 'tail', 'wings']) delete a.userData[k];
+    bake(a);
+    a.position.set(x, .02, z); a.rotation.order = 'YXZ'; a.rotation.y = ry; a.scale.multiplyScalar(s);
+    a.userData.base = { y: .02, s: a.scale.x };
+    return a;
+  }
+  const lowFence = (g, x0, z0, x1, z1, c = '#a0754f') => {
+    const len = Math.hypot(x1 - x0, z1 - z0), n = Math.max(1, Math.round(len / .12));
+    for (let i = 0; i <= n; i++) box(g, .025, .12, .025, c, x0 + (x1 - x0) * i / n, .02, z0 + (z1 - z0) * i / n);
+    for (const y of [.06, .11]) box(g, x0 === x1 ? .015 : len, .015, x0 === x1 ? len : .015, c, (x0 + x1) / 2, y, (z0 + z1) / 2);
+  };
+  // a flat-topped savanna tree
+  function acacia(g, x, z) {
+    const bark = '#7a5230';
+    const t = cyl(g, .025, .04, .5, bark, x, .02, z, 8); t.rotation.z = .12;
+    for (const sd of [-1, 1]) { const b = cyl(g, .012, .02, .2, bark, x + sd * .07, .42, z, 6); b.rotation.z = -sd * .9; }
+    ball(g, .28, soft('#6aa83f'), x - .02, .62, z, 2).scale.set(1, .2, .85);
+    ball(g, .2, soft('#7bb84a'), x + .1, .67, z + .05, 2).scale.set(1, .2, .9);
+  }
+
+  /* zoo animals: each one is its own little group so it can move */
+  function zooGiraffe() {
+    const p = new THREE.Group(), Y = soft('#e9b949'), S = soft('#9a5a22'), D = soft('#3a2a20');
+    const b = ball(p, .07, Y, 0, .34, 0, 2); b.scale.set(.75, .78, 1.35);
+    ball(p, .055, Y, 0, .35, .06, 2);
+    for (let i = 0; i < 12; i++) onBody(p, [0, .34, 0], [.052, .055, .095], (i * 2.4) % 3.4 - 1.7, ((i * .37) % 1 - .5) * .16, .016, S).scale.set(1, .45, 1.2);
+    for (const [x, z] of [[-.03, .055], [.03, .055], [-.03, -.06], [.03, -.06]]) petLeg(p, x, .33, z, .31, .011, Y, D);
+    hangTail(p, 0, .36, -.09, .13, .005, Y, D, .2);
+    const neck = new THREE.Group(); neck.position.set(0, .37, .075); neck.rotation.x = .4; p.add(neck);
+    cyl(neck, .02, .034, .32, Y, 0, 0, 0, 10);
+    rbox(neck, .01, .3, .02, D, 0, .01, -.025, .004);                                 // short mane
+    for (const y of [.08, .17, .25]) ball(neck, .012, S, .02, y, .012, 0).scale.set(.5, 1, 1);
+    const head = ball(neck, .032, Y, 0, .34, .035, 2); head.scale.set(.8, .8, 1.5);
+    ball(neck, .022, soft('#d9a441'), 0, .33, .08, 1).scale.set(.9, .8, 1.1);
+    for (const sd of [-1, 1]) {
+      cyl(neck, .005, .006, .04, Y, sd * .012, .36, .015, 5); ball(neck, .008, D, sd * .012, .4, .015, 0);
+      ball(neck, .006, soft('#161616'), sd * .024, .35, .05, 0);
+      const e = ball(neck, .012, Y, sd * .03, .36, .0, 0); e.scale.set(1.6, .5, .8);
+    }
+    bake(neck);
+    p.userData.keep = [neck];
+    return { p: bake(p), neck };
+  }
+  function zooElephant() {
+    const p = new THREE.Group(), E = soft('#9aa1aa'), Ed = soft('#878e97'), T = soft('#f4efe2');
+    ball(p, .13, E, 0, .2, 0, 2).scale.set(.85, .82, 1.15);
+    for (const [x, z] of [[-.06, .08], [.06, .08], [-.06, -.08], [.06, -.08]]) { cyl(p, .036, .04, .12, E, x, 0, z, 10); for (const k of [-1, 0, 1]) ball(p, .008, T, x + k * .015, .01, z + .035, 0); }
+    ball(p, .085, E, 0, .27, .14, 2);
+    for (const sd of [-1, 1]) {
+      ball(p, .009, soft('#1b1b1b'), sd * .05, .29, .2, 0);
+      const tusk = cone(p, .009, .06, T, sd * .03, .19, .21, 6); tusk.rotation.x = 2.3;
+    }
+    hangTail(p, 0, .26, -.15, .1, .006, E, soft('#4a4a4a'), .2);
+    const ears = [-1, 1].map(sd => {
+      const e = new THREE.Group(); e.position.set(sd * .07, .29, .12); p.add(e);
+      const m = rbox(e, .012, .16, .14, Ed, 0, -.1, -.06, .03); m.rotation.y = 0;
+      ball(e, .03, soft('#c9a3a3'), sd * .004, -.03, -.06, 0).scale.set(.2, 1.6, 1.4);
+      e.rotation.y = sd * .5; e.userData.sd = sd;
+      return bake(e);
+    });
+    const trunk = new THREE.Group(); trunk.position.set(0, .25, .215); p.add(trunk);
+    cyl(trunk, .016, .03, .17, E, 0, -.17, 0, 8);
+    for (let i = 1; i < 5; i++) cyl(trunk, .03 - i * .003, .03 - i * .003, .004, Ed, 0, -.03 * i, 0, 8);
+    ball(trunk, .018, E, 0, -.172, 0, 1);
+    bake(trunk);
+    p.userData.keep = [...ears, trunk];
+    return { p: bake(p), ears, trunk };
+  }
+  function zooLion() {
+    const p = new THREE.Group(), L = soft('#d9a35a'), M = soft('#8a4a1c'), lt = soft('#f0d2a0');
+    ball(p, .06, L, 0, .055, -.02, 2).scale.set(.9, .7, 1.6);                          // lying down
+    for (const sd of [-1, 1]) { ball(p, .018, L, sd * .03, .015, .09, 1).scale.set(.8, .6, 2.2); ball(p, .02, L, sd * .045, .025, -.08, 1).scale.set(.8, .8, 1.6); }
+    const tail = new THREE.Group(); tail.position.set(0, .06, -.11); p.add(tail);
+    const tc = cyl(tail, .006, .007, .12, L, 0, 0, 0, 5); tc.rotation.x = -1.4; tc.position.set(0, .0, -.06);
+    ball(tail, .015, M, 0, .0, -.125, 1);
+    bake(tail);
+    const head = new THREE.Group(); head.position.set(0, .085, .085); p.add(head);
+    ball(head, .055, M, 0, .01, -.012, 2).scale.set(1.15, 1.1, .8);                 // mane
+    for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2; ball(head, .024, M, Math.cos(a) * .055, .01 + Math.sin(a) * .055, -.01, 1); }
+    ball(head, .04, L, 0, .01, .02, 2);
+    ball(head, .022, lt, 0, -.008, .052, 1).scale.set(1.2, .8, .9);                    // muzzle
+    ball(head, .008, soft('#5a3a2a'), 0, .002, .072, 0);
+    for (const sd of [-1, 1]) { ball(head, .007, soft('#2a1a10'), sd * .017, .022, .052, 0); ball(head, .012, L, sd * .03, .045, .01, 0); }
+    bake(head);
+    p.userData.keep = [head, tail];
+    return { p: bake(p), head, tail };
+  }
+  function zooPenguin(s) {
+    const p = new THREE.Group(), K = soft('#22252b'), W = soft('#f7f7f4'), O = soft('#ff9f1c');
+    ball(p, .036, K, 0, .065, 0, 2).scale.set(.85, 1.45, .8);
+    ball(p, .03, W, 0, .06, .013, 2).scale.set(.8, 1.35, .6);
+    ball(p, .026, K, 0, .13, .002, 2);
+    for (const sd of [-1, 1]) {
+      ball(p, .009, soft('#ffc93c'), sd * .018, .125, .012, 0).scale.set(.6, 1.2, .8);   // yellow cheeks
+      ball(p, .004, W, sd * .01, .137, .024, 0);
+      const f = ball(p, .02, K, sd * .033, .07, 0, 1); f.scale.set(.3, 1.3, .7); f.rotation.z = sd * .25;
+      ball(p, .01, O, sd * .012, .004, .015, 0).scale.set(1, .35, 1.6);
+    }
+    const beak = cone(p, .007, .022, O, 0, 0, 0, 5); beak.rotation.x = Math.PI / 2; beak.position.set(0, .126, .03);
+    p.scale.setScalar(s);
+    return bake(p);
+  }
+  function zooMonkey() {
+    const p = new THREE.Group(), B = soft('#6b4423'), F = soft('#e6c49a');
+    box(p, .012, .07, .012, B, 0, -.07, 0);                                            // arm holding the branch
+    ball(p, .03, B, 0, -.1, 0, 1).scale.set(.9, 1.2, .8);
+    ball(p, .024, B, 0, -.15, .005, 1);
+    ball(p, .016, F, 0, -.152, .02, 1).scale.set(1.1, .9, .6);
+    for (const sd of [-1, 1]) { ball(p, .009, F, sd * .025, -.148, .003, 0); ball(p, .004, soft('#111111'), sd * .007, -.146, .03, 0); }
+    const t = cyl(p, .004, .005, .08, B, 0, -.17, -.03, 5); t.rotation.x = .9;
+    for (const [x, z] of [[-.015, .01], [.015, .01]]) box(p, .01, .05, .01, B, x, -.17, z);
+    return bake(p);
+  }
+  function makeZoo(r = Math.random) {
     const g = new THREE.Group();
     box(g, 1.9, .025, 1.9, '#86c45a', 0, 0, 0);
-    // fence and entrance
+    // sandy paths: in from the gate, and across the middle
+    box(g, .26, .01, .98, '#e2cf9b', 0, .025, .46);
+    box(g, 1.8, .01, .22, '#e2cf9b', 0, .025, -.06);
+    // outer fence and the gate
     const post = '#8a5a3b';
     for (let i = -.9; i <= .9; i += .15) for (const [x, z] of [[i, -.9], [i, .9], [-.9, i], [.9, i]]) {
       if (z === .9 && Math.abs(x) < .25) continue;
@@ -1467,75 +1587,136 @@
     for (const x of [-.27, .27]) cyl(g, .04, .04, .55, '#6d4c41', x, .02, .9, 8);
     rbox(g, .66, .1, .06, '#ffbe0b', 0, .52, .9, .02);
     sign(g, 'ZOO', '#ffbe0b', '#2d6a4f', .3, .08, 0, .57, .932);
-    // a path, a pond and trees
-    box(g, .3, .01, .9, '#e2cf9b', 0, .025, .45);
-    cyl(g, .25, .25, .015, waterMat, .48, .025, .45, 18);
-    for (const [x, z] of [[-.65, -.65], [.65, -.68], [-.7, .55]]) { const t = makeTree(rngSeed(x * 10 + z)); t.position.set(x, .02, z); t.scale.setScalar(.8); g.add(t); }
-    // giraffe
-    const gir = new THREE.Group(); gir.position.set(-.35, .02, -.25); g.add(gir);
-    const Y = '#f4c542', S = '#b5651d';
-    box(gir, .14, .1, .24, Y, 0, .2, 0);
-    for (const x of [-.05, .05]) for (const z of [-.08, .08]) box(gir, .03, .2, .03, Y, x, 0, z);
-    for (const [x, y, z] of [[.071, .25, .05], [-.071, .26, -.05], [.071, .24, -.07]]) box(gir, .005, .035, .04, S, x, y, z);
-    const neck = new THREE.Group(); neck.position.set(0, .28, .1); gir.add(neck);
-    box(neck, .05, .38, .05, Y, 0, 0, 0).rotation.x = .25;
-    box(neck, .07, .07, .12, Y, 0, .35, .12);
-    for (const x of [-.02, .02]) cyl(neck, .006, .006, .05, S, x, .41, .1, 4);
-    box(neck, .012, .012, .005, '#222222', -.036, .38, .15); box(neck, .012, .012, .005, '#222222', .036, .38, .15);
-    bake(neck);
-    keepParts(g, neck);
-    // elephant
-    const el = new THREE.Group(); el.position.set(.4, .02, -.35); el.rotation.y = -.6; g.add(el);
-    const E = '#9aa0a8';
-    rbox(el, .22, .18, .3, E, 0, .1, 0, .06);
-    for (const x of [-.07, .07]) for (const z of [-.09, .09]) cyl(el, .035, .035, .12, E, x, 0, z, 8);
-    rbox(el, .17, .16, .14, E, 0, .18, .19, .05);
-    for (const x of [-.11, .11]) { const e = box(el, .02, .12, .1, '#b6bcc4', x, .17, .17); e.rotation.y = x > 0 ? -.4 : .4; }
-    const trunk = cyl(el, .025, .035, .16, E, 0, .06, .27, 8); trunk.rotation.x = .25;
-    ball(el, .012, '#222222', -.05, .3, .26); ball(el, .012, '#222222', .05, .3, .26);
-    // lion
-    const li = new THREE.Group(); li.position.set(-.45, .02, .35); li.rotation.y = .8; g.add(li);
-    box(li, .12, .09, .2, '#e0a34a', 0, .06, 0);
-    for (const x of [-.04, .04]) for (const z of [-.07, .07]) box(li, .03, .06, .03, '#e0a34a', x, 0, z);
-    ball(li, .09, soft('#9c5a1e'), 0, .17, .11, 1);
-    ball(li, .06, soft('#e0a34a'), 0, .17, .15, 1);
-    ball(li, .01, '#222222', -.025, .19, .2); ball(li, .01, '#222222', .025, .19, .2);
-    g.userData.tick = (dt, t) => { neck.rotation.x = Math.sin(t * .8) * .12; neck.rotation.y = Math.sin(t * .5) * .3; };
+    // low fences between the paddocks and the paths
+    lowFence(g, -.88, .06, -.15, .06); lowFence(g, .15, .06, .88, .06); lowFence(g, -.88, -.18, -.15, -.18); lowFence(g, .15, -.18, .88, -.18);
+    lowFence(g, -.15, .06, -.15, .86); lowFence(g, .15, .06, .15, .86);
+    // savanna (back left): dry grass, an acacia, a giraffe and a monkey in the tree
+    box(g, .7, .012, .66, '#d9c27a', -.52, .022, -.53);
+    acacia(g, -.7, -.7);
+    const gi = zooGiraffe(); gi.p.position.set(-.3, .02, -.36); gi.p.rotation.y = -2.4; g.add(gi.p);   // nibbling the edge of the tree
+    const monkey = zooMonkey(); monkey.position.set(-.82, .6, -.52); g.add(monkey);
+    // elephant pool (back right)
+    box(g, .7, .012, .66, '#b99b6b', .52, .022, -.53);
+    cyl(g, .2, .2, .016, waterMat, .66, .026, -.68, 20);
+    for (let i = 0; i < 9; i++) { const a = i / 9 * 6.28; ball(g, .035, mat('#9a948a'), .66 + Math.cos(a) * .21, .03, -.68 + Math.sin(a) * .21, 0).scale.y = .6; }
+    const el = zooElephant(); el.p.position.set(.42, .02, -.42); el.p.rotation.y = -.5; g.add(el.p);
+    // lion rock (front left)
+    for (const [x, z, s] of [[-.55, .42, .13], [-.7, .6, .08], [-.4, .64, .06]]) ball(g, s, mat('#8f8678'), x, s * .4, z, 0).scale.set(1.5, .7, 1.2);
+    box(g, .7, .012, .78, '#c9b27a', -.52, .022, .46);
+    const li = zooLion(); li.p.position.set(-.55, .1, .42); li.p.rotation.y = .6; li.p.scale.setScalar(1.35); g.add(li.p);
+    // penguin pool (front right)
+    box(g, .62, .02, .5, '#e9f6ff', .52, .02, .47);
+    box(g, .5, .012, .36, waterMat, .52, .034, .5);
+    ball(g, .09, soft('#ffffff'), .72, .04, .3, 1).scale.set(1.2, .7, 1);
+    const pens = [[.36, .3, 1.25], [.46, .27, 1.4], [.76, .66, 1.2]].map(([x, z, s]) => { const pg = zooPenguin(s); pg.position.set(x, .04, z); pg.rotation.y = .4; g.add(pg); return pg; });
+    keepParts(g, gi.neck, monkey, ...el.ears, el.trunk, li.head, li.tail, ...pens);
+    // the animal a child tapped does its thing for a moment (set by play)
+    g.userData.tick = (dt, t) => {
+      const act = g.userData.act;
+      if (act) { act.t += dt; if (act.t > 1.6) g.userData.act = null; }
+      const k = act ? Math.sin(Math.min(1, act.t / 1.6) * Math.PI) : 0, who = act && act.who;
+      gi.neck.rotation.x = .4 + Math.sin(t * .7) * .12; gi.neck.rotation.y = Math.sin(t * .4) * .25;
+      monkey.rotation.z = Math.sin(t * 2.2) * (who === 'monkey' ? .9 : .35);
+      for (const e of el.ears) e.rotation.y = e.userData.sd * (.5 + Math.sin(t * 2.5) * .25 + (who === 'elephant' ? k * .5 : 0));
+      el.trunk.rotation.x = who === 'elephant' ? -2.2 * k : Math.sin(t * 1.3) * .3;
+      li.tail.rotation.y = Math.sin(t * 1.8) * .5;
+      li.head.rotation.x = who === 'lion' ? -.35 * k : Math.sin(t * .5) * .05;
+      li.head.scale.setScalar(1 + (who === 'lion' ? .15 * k : 0));
+      pens.forEach((pg, i) => {
+        const hop = who === 'penguin' ? Math.abs(Math.sin(act.t * 7 + i)) * .06 : 0;
+        pg.rotation.z = Math.sin(t * 5 + i * 2) * .12; pg.position.y = .04 + hop;
+      });
+      // one penguin waddles along the edge and back
+      pens[0].position.x = .36 + Math.sin(t * .5) * .1; pens[0].rotation.y = Math.cos(t * .5) > 0 ? Math.PI / 2 : -Math.PI / 2;
+    };
     return g;
   }
-  function makeFarm() {
+
+  function makeFarm(r = Math.random) {
     const g = new THREE.Group();
     box(g, 1.9, .025, 1.9, '#7fbf4f', 0, 0, 0);
-    // a red barn with white trim
-    const barn = new THREE.Group(); barn.position.set(-.35, 0, -.35); g.add(barn);
+    box(g, .2, .01, 1.05, '#c9a46a', -.42, .025, .42);                                  // track up to the barn
+    // a red barn with white trim, a hay loft and a weathervane
+    const barn = new THREE.Group(); barn.position.set(-.45, 0, -.45); g.add(barn);
     rbox(barn, .8, .5, .7, '#c0392b', 0, .02, 0, .02);
     roof(barn, .8, .7, .3, '#5d4037', .52, '#c0392b');
+    for (const x of [-.39, .39]) for (const z of [-.34, .34]) box(barn, .03, .5, .03, '#ffffff', x, .02, z);
     box(barn, .36, .38, .02, '#ffffff', 0, .02, .35);
     box(barn, .32, .34, .025, '#a93226', 0, .04, .352);
-    for (const r of [.84, -.84]) { const x = box(barn, .02, .46, .028, '#ffffff', 0, .04, .355); x.rotation.z = r; x.position.y = .21; }
-    box(barn, .14, .12, .02, '#ffffff', 0, .54, .35);
-    box(barn, .1, .08, .025, '#5d4037', 0, .56, .352);
+    for (const r2 of [.84, -.84]) { const x = box(barn, .02, .46, .028, '#ffffff', 0, .04, .355); x.rotation.z = r2; x.position.y = .21; }
+    box(barn, .14, .12, .02, '#ffffff', 0, .56, .35);
+    box(barn, .1, .08, .025, '#5d4037', 0, .58, .352);
+    ball(barn, .03, soft('#e8c35a'), 0, .6, .37, 0).scale.set(1.4, .6, .5);            // hay peeking out
+    cyl(g, .006, .006, .14, '#444444', -.45, .84, -.45, 5);
+    const vane = new THREE.Group(); vane.position.set(-.45, .96, -.45); g.add(vane);
+    box(vane, .16, .008, .008, '#333333', 0, 0, 0); cone(vane, .02, .04, '#333333', .08, -.02, 0, 3).rotation.z = -Math.PI / 2;
+    box(vane, .05, .045, .006, '#333333', -.07, .0, 0);                                // rooster tail fin
+    bake(vane);
     // silo
-    cyl(g, .16, .16, .8, soft('#d9dde3'), .45, 0, -.5, 16);
-    for (const y of [.2, .4, .6]) cyl(g, .165, .165, .02, soft('#b6bcc4'), .45, y, -.5, 16);
-    ball(g, .16, soft('#8c3b2f'), .45, .8, -.5, 1).scale.y = .7;
-    // a pen with a fence, hay bales and a water trough
+    cyl(g, .13, .13, .78, soft('#d9dde3'), .1, 0, -.68, 16);
+    for (const y of [.2, .4, .6]) cyl(g, .135, .135, .02, soft('#b6bcc4'), .1, y, -.68, 16);
+    ball(g, .13, soft('#8c3b2f'), .1, .78, -.68, 1).scale.y = .7;
+    // fields: rows of wheat and of lettuces
+    box(g, .62, .02, .56, '#7a5634', .58, .02, -.52);
+    for (let i = 0; i < 5; i++) {
+      const z = -.74 + i * .11;
+      if (i % 2) for (let k = 0; k < 6; k++) ball(g, .032, soft('#6cc04a'), .33 + k * .1, .05, z, 1).scale.y = .7;
+      else for (let k = 0; k < 9; k++) { cyl(g, .004, .004, .14, '#d9b44a', .32 + k * .065, .03, z, 4); ball(g, .012, soft('#e8c35a'), .32 + k * .065, .17, z, 0).scale.y = 1.6; }
+    }
+    // a wind pump that turns in the breeze
+    const wx = .84, wz = -.1;
+    for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { const l = cyl(g, .006, .008, .72, '#8a8f98', wx + dx * .05, .02, wz + dz * .05, 4); l.rotation.set(dz * -.07, 0, dx * .07); }
+    box(g, .04, .04, .06, '#8a8f98', wx, .72, wz);
+    const fan = new THREE.Group(); fan.position.set(wx, .74, wz + .05); g.add(fan);
+    for (let i = 0; i < 8; i++) { const b = box(fan, .022, .13, .006, '#e8e8e8', 0, 0, 0); b.geometry.translate(0, .065, 0); b.rotation.z = i * Math.PI / 4; b.position.set(0, 0, 0); }
+    ball(fan, .018, soft('#c0392b'), 0, 0, .004, 0);
+    bake(fan);
+    box(g, .008, .008, .14, '#8a8f98', wx, .74, wz - .07); box(g, .006, .07, .08, '#c0392b', wx, .7, wz - .15);
+    // the paddock: a cow, a horse and two sheep
     const post = '#a0754f';
-    for (let i = 0; i <= 8; i++) { box(g, .03, .14, .03, post, -.05 + i * .11, 0, .15); box(g, .03, .14, .03, post, .83, 0, .15 + i * .09); box(g, .03, .14, .03, post, -.05 + i * .11, 0, .87); }
-    for (const z of [.15, .87]) box(g, .9, .02, .02, post, .39, .1, z);
-    box(g, .02, .02, .72, post, .83, .1, .51);
-    for (const [x, z] of [[-.75, .3], [-.6, .3], [-.68, .45]]) { const h = cyl(g, .07, .07, .14, '#e8c35a', 0, 0, 0, 12); h.rotation.z = Math.PI / 2; h.position.set(x, z === .45 ? .19 : .07, z === .45 ? .3 : z); }
-    box(g, .3, .06, .1, '#8a8f98', .4, .02, .75); box(g, .26, .01, .07, waterMat, .4, .07, .75);
-    // a sheep and a cow in the pen
-    const cow = makeCow(rngSeed(3)); cow.position.set(.2, .02, .45); cow.rotation.y = .9; cow.scale.multiplyScalar(.9); g.add(cow);
-    const sheep = makeSheep(rngSeed(4)); sheep.position.set(.6, .02, .4); sheep.rotation.y = -1.2; g.add(sheep);
-    // a little green tractor
-    const tr = new THREE.Group(); tr.position.set(-.55, 0, .65); tr.rotation.y = .5; g.add(tr);
-    box(tr, .14, .1, .26, '#2e8b3a', 0, .06, 0); box(tr, .12, .1, .1, winMat, 0, .16, -.05); box(tr, .14, .02, .12, '#2e8b3a', 0, .26, -.05);
-    for (const [z, rad] of [[-.08, .07], [.1, .045]]) for (const x of [-.09, .09]) { const w = cyl(tr, rad, rad, .04, '#222222', 0, 0, 0, 12); w.rotation.z = Math.PI / 2; w.position.set(x, rad, z); }
-    cyl(tr, .012, .012, .1, '#555555', 0, .16, .08, 6);
+    lowFence(g, .02, .12, .9, .12, post); lowFence(g, .9, .12, .9, .9, post); lowFence(g, .02, .9, .9, .9, post); lowFence(g, .02, .12, .02, .5, post);
+    box(g, .26, .06, .08, '#8a8f98', .7, .02, .8); box(g, .22, .01, .05, waterMat, .7, .07, .8);
+    const cow = standing(makeCow, rngSeed(31), .25, .35, .9, .85);
+    const horse = standing(makeHorse, rngSeed(32), .62, .32, -1.3, .8);
+    const sheep = [standing(makeSheep, rngSeed(33), .3, .72, 2.4, .85), standing(makeSheep, rngSeed(34), .5, .62, -.4, .8)];
+    g.add(cow, horse, ...sheep);
+    // the hen house, with hens pecking about
+    const coop = new THREE.Group(); coop.position.set(-.7, 0, .42); g.add(coop);
+    for (const [x, z] of [[-.1, -.08], [.1, -.08], [-.1, .08], [.1, .08]]) box(coop, .02, .1, .02, '#7a5230', x, 0, z);
+    rbox(coop, .26, .16, .2, '#d9a066', 0, .1, 0, .015);
+    roof(coop, .26, .2, .1, '#c0392b', .26, '#d9a066');
+    box(coop, .06, .07, .01, '#5d4037', .05, .14, .1);
+    const ramp = box(coop, .06, .01, .16, '#a0754f', .05, .06, .16); ramp.rotation.x = .55;
+    const hens = [[-.55, .7, .4], [-.78, .7, 2.6], [-.4, .55, -1.2]].map(([x, z, ry], i) => standing(makeChicken, rngSeed(40 + i), x, z, ry, .9));
+    g.add(...hens);
+    for (let i = 0; i < 6; i++) ball(g, .008, soft('#e8c35a'), -.6 + (i % 3) * .06, .03, .62 + Math.floor(i / 3) * .05, 0);   // grain
+    // hay bales and a tractor
+    for (const [x, z, y] of [[-.86, .0, .07], [-.72, .0, .07], [-.79, .0, .19]]) { const h = cyl(g, .07, .07, .14, '#e8c35a', 0, 0, 0, 12); h.rotation.x = Math.PI / 2; h.position.set(x, y, z); }
+    const tr = new THREE.Group(); tr.position.set(-.12, 0, .72); tr.rotation.y = .4; g.add(tr);
+    rbox(tr, .13, .08, .22, '#2e8b3a', 0, .06, .02, .02);
+    box(tr, .12, .11, .1, winMat, 0, .14, -.05); rbox(tr, .15, .02, .13, '#2e8b3a', 0, .25, -.05, .008);
+    for (const x of [-.06, .06]) for (const z of [-.1, 0]) box(tr, .008, .11, .008, '#2e8b3a', x, .14, z - .0);
+    for (const [z, rad] of [[-.07, .075], [.12, .045]]) for (const x of [-.085, .085]) {
+      const w = cyl(tr, rad, rad, .04, '#222222', 0, 0, 0, 14); w.rotation.z = Math.PI / 2; w.position.set(x, rad, z);
+      const hub = cyl(tr, rad * .5, rad * .5, .045, '#ffbe0b', 0, 0, 0, 10); hub.rotation.z = Math.PI / 2; hub.position.set(x, rad, z);
+    }
+    cyl(tr, .01, .01, .1, '#555555', .04, .14, .1, 6);
+    keepParts(g, vane, fan, cow, horse, ...sheep, ...hens);
+    g.userData.tick = (dt, t) => {
+      const act = g.userData.act;
+      if (act) { act.t += dt; if (act.t > 1.4) g.userData.act = null; }
+      const k = act ? Math.sin(Math.min(1, act.t / 1.4) * Math.PI) : 0, who = act && act.who;
+      fan.rotation.z -= dt * 2.2;
+      vane.rotation.y = Math.sin(t * .3) * .8;
+      // hens peck at the grain; the animals breathe; whoever was tapped jumps for joy
+      hens.forEach((h, i) => { h.rotation.x = Math.max(0, Math.sin(t * 3 + i * 2)) * .5; h.position.y = .02 + (who === 'chicken' ? Math.abs(Math.sin(act.t * 9 + i)) * .07 : 0); });
+      const hop = (a, w) => { a.position.y = a.userData.base.y + (who === w ? k * .08 : 0); a.scale.set(a.userData.base.s, a.userData.base.s * (1 + Math.sin(t * 2 + a.position.x * 9) * .015), a.userData.base.s); };
+      hop(cow, 'cow'); hop(horse, 'horse'); sheep.forEach(s => hop(s, 'sheep'));
+    };
     return g;
   }
+
+
 
   /* fun */
   function makePlayground() {
@@ -2102,87 +2283,166 @@
   }
 
   /* animals: they wander like pets (body along +z) */
+  // a spot or patch sitting on an egg-shaped body (centre c, half sizes h): th = round the side, z = along
+  function onBody(g, c, h, th, z, rad, m) {
+    const k = Math.sqrt(Math.max(0, 1 - (z / h[2]) ** 2));
+    return ball(g, rad, m, c[0] + h[0] * Math.sin(th) * k * .9, c[1] + h[1] * Math.cos(th) * k * .9, c[2] + z, 1);
+  }
+  // a tail that hangs from the rump and swishes (y goes down from the pivot)
+  function hangTail(g, x, y, z, len, r, fur, tuft, tilt = .3) {
+    const t = new THREE.Group(); t.position.set(x, y, z); t.rotation.x = tilt; g.add(t);
+    cyl(t, r * .7, r, len, fur, 0, -len, 0, 6);
+    if (tuft) ball(t, r * 2.2, tuft, 0, -len - r, 0, 1).scale.set(1, 1.5, 1);
+    return bake(t);
+  }
   function makeCow(r) {
     const g = new THREE.Group();
-    const W = '#ffffff', B = '#2b2b33';
-    rbox(g, .14, .11, .26, W, 0, .08, 0, .03);
-    for (const [x, y, z, s] of [[.071, .12, .03, .06], [-.071, .13, -.06, .07], [.03, .19, -.08, .05]]) box(g, x ? .005 : s, x ? s : .005, s, B, x, y, z);
-    for (const x of [-.045, .045]) for (const z of [-.09, .09]) box(g, .03, .09, .03, W, x, 0, z);
-    rbox(g, .1, .1, .11, W, 0, .14, .16, .03);
-    rbox(g, .1, .05, .05, '#ffb3c1', 0, .13, .22, .015);
-    for (const x of [-.02, .02]) ball(g, .008, B, x, .155, .245);
-    for (const x of [-.03, .03]) ball(g, .01, B, x, .21, .21);
-    for (const sd of [-1, 1]) { cone(g, .012, .04, '#f5e6c8', sd * .04, .24, .14, 5); box(g, .05, .025, .02, W, sd * .07, .21, .14); }
-    box(g, .015, .1, .015, W, 0, .1, -.14).rotation.x = .3;
-    g.scale.setScalar(1.25);
+    const [kind, a, b] = pick(r, [['holstein', '#f7f5f0', '#26262c'], ['holstein', '#f7f5f0', '#5a3324'], ['jersey', '#c08048', '#7a4a26'], ['highland', '#b8592b', '#8a3e1c']]);
+    const hide = soft(a), dark = soft(b), pink = soft('#f0a3b2'), hoof = soft('#3a3030');
+    const C = [0, .16, -.01], H = [.075, .07, .14];
+    ball(g, .085, hide, ...C, 2).scale.set(H[0] / .085, H[1] / .085, H[2] / .085);   // barrel body
+    ball(g, .068, hide, 0, .17, .08, 2);                                             // shoulders
+    ball(g, .07, hide, 0, .17, -.09, 2);                                             // hips
+    if (kind === 'holstein') for (let i = 0; i < 7; i++) onBody(g, C, H, (r() - .5) * 3.2, (r() - .5) * .22, .032 + r() * .02, dark).scale.set(1.1, .55, 1.3);
+    if (kind === 'highland') for (let i = 0; i < 10; i++) onBody(g, C, H, (r() - .5) * 3, (r() - .5) * .24, .03, hide);   // shaggy coat
+    ball(g, .028, pink, 0, .095, -.05, 1).scale.set(1, .7, 1.2);                     // udder
+    const neck = cyl(g, .045, .056, .09, hide, 0, .15, .14, 10); neck.rotation.x = 1;
+    ball(g, .05, kind === 'holstein' ? dark : hide, 0, .205, .2, 2).scale.set(.9, .95, 1.15);   // head
+    if (kind === 'holstein') ball(g, .03, hide, 0, .22, .245, 1).scale.set(.7, 1.2, .5);         // white blaze
+    ball(g, .038, kind === 'holstein' ? pink : soft('#3b2a22'), 0, .178, .25, 2).scale.set(1.15, .85, .9);   // muzzle
+    for (const x of [-.016, .016]) ball(g, .007, soft('#2a1f1f'), x, .178, .283, 0);
+    for (const sd of [-1, 1]) {
+      ball(g, .009, soft('#1b1b1b'), sd * .034, .222, .228, 1);
+      const ear = ball(g, .022, hide, sd * .062, .215, .19, 1); ear.scale.set(1.6, .55, 1); ear.rotation.z = sd * -.3;
+      ball(g, .012, pink, sd * .068, .214, .196, 0).scale.set(1.4, .4, .9);
+      const horn = cone(g, kind === 'highland' ? .012 : .009, kind === 'highland' ? .08 : .035, soft('#efe3c6'), sd * (kind === 'highland' ? .07 : .035), .23, .19, 6);
+      horn.rotation.z = sd * -(kind === 'highland' ? 1.25 : .55);
+    }
+    if (kind === 'highland') ball(g, .035, dark, 0, .235, .225, 1).scale.set(1.3, .7, .8);      // fringe over the eyes
+    const limbs = [[-.045, .085], [.045, .085], [-.047, -.09], [.047, -.09]].map(([x, z], i) => petLeg(g, x, .12, z, .11, .02, hide, hoof, i > 1));
+    const tail = hangTail(g, 0, .21, -.14, .14, .007, hide, dark);
+    Object.assign(g.userData, { limbs, tail });
+    g.scale.setScalar(1.2);
     return g;
   }
   function makeSheep(r) {
     const g = new THREE.Group();
-    const wool = soft('#f7f4ee'), B = '#2b2b33';
-    for (let i = 0; i < 7; i++) ball(g, .055, wool, (i % 2 - .5) * .05, .12 + (i % 3) * .02, -.07 + i * .025, 1);
-    for (const x of [-.03, .03]) for (const z of [-.06, .06]) box(g, .022, .07, .022, B, x, 0, z);
-    rbox(g, .06, .07, .08, B, 0, .12, .11, .02);
-    for (const x of [-.022, .022]) ball(g, .008, '#ffffff', x, .17, .15);
-    for (const sd of [-1, 1]) box(g, .04, .015, .025, B, sd * .045, .17, .1);
-    ball(g, .03, wool, 0, .2, .1, 1);
-    g.scale.setScalar(1.3);
-    return g;
-  }
-  function makeChicken(r) {
-    const g = new THREE.Group();
-    const c = pick(r, ['#ffffff', '#c98b5a', '#f2e6c8']);
-    const b = ball(g, .05, soft(c), 0, .08, 0, 1); b.scale.set(.9, .9, 1.2);
-    ball(g, .032, soft(c), 0, .14, .04, 1);
-    box(g, .01, .03, .03, '#e63946', 0, .17, .04);
-    box(g, .008, .02, .01, '#e63946', 0, .115, .07);
-    const beak = cone(g, .01, .025, '#ffbe0b', 0, 0, 0, 4); beak.rotation.x = Math.PI / 2; beak.position.set(0, .135, .075);
-    for (const x of [-.018, .018]) ball(g, .006, '#222222', x, .145, .065);
-    box(g, .03, .05, .03, c, 0, .1, -.06).rotation.x = -.5;
-    for (const x of [-.015, .015]) cyl(g, .004, .004, .04, '#ffbe0b', x, 0, 0, 4);
-    g.userData.wings = [box(g, .01, .04, .06, c, -.045, .07, 0), box(g, .01, .04, .06, c, .045, .07, 0)];
-    g.scale.setScalar(1.3);
+    const [w, f] = pick(r, [['#f7f4ee', '#2b2b33'], ['#f7f4ee', '#2b2b33'], ['#efe6d2', '#f2ece0'], ['#3a3438', '#1e1b1e']]);
+    const wool = soft(w), face = soft(f);
+    ball(g, .07, wool, 0, .15, -.005, 2).scale.set(1, .95, 1.35);
+    // a cloud of curls
+    for (let i = 0; i < 16; i++) {
+      const th = (r() - .5) * 3.6, z = (r() - .5) * .16;
+      onBody(g, [0, .15, -.005], [.07, .066, .095], th, z, .03 + r() * .012, wool);
+    }
+    ball(g, .034, face, 0, .165, .11, 2).scale.set(.85, .95, 1.3);                  // face
+    ball(g, .03, wool, 0, .2, .09, 1);                                                // woolly top
+    for (const sd of [-1, 1]) {
+      const e = ball(g, .016, face, sd * .04, .175, .1, 1); e.scale.set(1.8, .5, .9); e.rotation.z = sd * .4;
+      ball(g, .007, soft('#e8d9a8'), sd * .021, .178, .138, 0);
+      ball(g, .004, soft('#111111'), sd * .022, .178, .144, 0);
+    }
+    ball(g, .012, soft('#5a4a4a'), 0, .146, .152, 0);
+    const limbs = [[-.03, .055], [.03, .055], [-.032, -.06], [.032, -.06]].map(([x, z]) => petLeg(g, x, .1, z, .095, .011, face, face));
+    const tail = hangTail(g, 0, .17, -.1, .04, .012, wool, wool, .5);
+    Object.assign(g.userData, { limbs, tail });
+    g.scale.setScalar(1.25);
     return g;
   }
   function makeHorse(r) {
     const g = new THREE.Group();
-    const c = pick(r, ['#8b5a33', '#5d4037', '#d9b38c', '#f5f5f5']), m = pick(r, ['#3b2a20', '#f5e6c8', '#222222']);
-    rbox(g, .11, .11, .26, c, 0, .12, 0, .035);
-    for (const x of [-.035, .035]) for (const z of [-.09, .09]) box(g, .028, .13, .028, c, x, 0, z);
-    const neck = box(g, .06, .14, .07, c, 0, .18, .12); neck.rotation.x = -.5;
-    rbox(g, .06, .06, .13, c, 0, .28, .2, .02);
-    box(g, .014, .1, .09, m, 0, .24, .1).rotation.x = -.5;
-    for (const x of [-.02, .02]) cone(g, .012, .035, c, x, .33, .16, 4);
-    for (const x of [-.031, .031]) ball(g, .008, '#222222', x, .3, .22);
-    const tail = box(g, .025, .14, .025, m, 0, .1, -.14); tail.rotation.x = .35;
-    g.scale.setScalar(1.3);
+    const [c, m, sock] = pick(r, [['#a0522d', '#6b3010', null], ['#7b4a2a', '#1e1a18', '#1e1a18'], ['#e0b860', '#f6ecd0', null], ['#d8d6d2', '#f4f4f4', null], ['#2a2626', '#111111', '#f4f4f4']]);
+    const coat = soft(c), mane = soft(m), hoof = soft('#2b2420');
+    ball(g, .075, coat, 0, .2, 0, 2).scale.set(.8, .86, 1.75);
+    ball(g, .062, coat, 0, .21, .09, 2);                                              // chest
+    ball(g, .066, coat, 0, .215, -.09, 2);                                            // rump
+    const neck = cyl(g, .034, .05, .16, coat, 0, .22, .12, 10); neck.rotation.x = .55;
+    rbox(g, .016, .17, .05, mane, 0, .235, .085, .008).rotation.x = .55;             // mane
+    ball(g, .04, coat, 0, .365, .2, 2).scale.set(.8, .9, 1.15);                     // head
+    ball(g, .031, soft(mixHex(c, '#000000', .25)), 0, .34, .262, 2).scale.set(.85, .85, 1.25);   // muzzle
+    if (r() < .5) rbox(g, .012, .07, .006, '#f6f2ea', 0, .345, .265, .003).rotation.x = -.95;  // white blaze
+    for (const sd of [-1, 1]) {
+      ball(g, .009, soft('#161616'), sd * .03, .375, .215, 1);
+      ball(g, .006, soft('#1b1b1b'), sd * .012, .33, .3, 0);
+      const ear = cone(g, .011, .04, coat, sd * .018, .395, .18, 5); ear.rotation.z = sd * -.2;
+    }
+    ball(g, .02, mane, 0, .4, .2, 1).scale.set(.7, .6, 1.1);                          // forelock
+    const limbs = [[-.04, .085], [.04, .085], [-.04, -.09], [.04, -.09]].map(([x, z], i) => petLeg(g, x, .18, z, .17, .016, sock && i % 3 === 0 ? soft(sock) : coat, hoof, i > 1));
+    const tail = hangTail(g, 0, .25, -.125, .17, .02, mane, mane, .45);
+    Object.assign(g.userData, { limbs, tail });
+    g.scale.setScalar(1.2);
+    return g;
+  }
+  function makeChicken(r) {
+    const g = new THREE.Group();
+    const [c, t, rooster] = pick(r, [['#f8f6f1', '#f8f6f1', 0], ['#b5651d', '#7a3b12', 0], ['#9a9a9a', '#5c5c5c', 0], ['#c0582c', '#1f3d2f', 1]]);
+    const body = soft(c), tailC = soft(t), red = soft('#e63946'), yel = soft('#ffb703');
+    ball(g, .05, body, 0, .085, 0, 2).scale.set(.95, .95, 1.15);
+    ball(g, .038, body, 0, .085, .035, 1);                                            // breast
+    for (let i = 0; i < (rooster ? 5 : 3); i++) {                                     // tail feathers fan out
+      const f = rbox(g, .01, rooster ? .1 : .06, .03, tailC, (i - (rooster ? 2 : 1)) * .012, .095, -.055, .005);
+      f.rotation.set(-.55, 0, (i - (rooster ? 2 : 1)) * .25);
+    }
+    ball(g, .028, body, 0, .148, .045, 2);                                            // head
+    for (let i = 0; i < 3; i++) ball(g, rooster ? .011 : .008, red, 0, .175 - Math.abs(i - 1) * .006, .03 + i * .012, 0);   // comb
+    ball(g, .008, red, 0, .122, .068, 0).scale.set(.7, 1.3, .7);                      // wattle
+    const beak = cone(g, .009, .024, yel, 0, 0, 0, 5); beak.rotation.x = Math.PI / 2; beak.position.set(0, .142, .08);
+    for (const x of [-.017, .017]) ball(g, .005, soft('#111111'), x, .153, .066, 0);
+    const wing = sd => { const w = ball(g, .034, tailC, sd * .045, .088, -.005, 1); w.scale.set(.32, .7, 1.25); return w; };
+    g.userData.wings = [wing(-1), wing(1)];
+    g.userData.limbs = [-.018, .018].map(x => petLeg(g, x, .05, 0, .045, .005, yel, yel));
+    g.scale.setScalar(1.25);
     return g;
   }
   function makeRabbit(r) {
     const g = new THREE.Group();
-    const c = pick(r, ['#f5f5f5', '#c8b8a6', '#9e9e9e', '#d9a066']);
-    const b = ball(g, .05, soft(c), 0, .055, 0, 1); b.scale.set(.9, .85, 1.15);
-    ball(g, .035, soft(c), 0, .1, .05, 1);
-    for (const x of [-.015, .015]) { const e = box(g, .016, .07, .008, c, x, .12, .04); e.rotation.z = x * 6; box(g, .008, .05, .009, '#ffb3c1', x, .13, .045).rotation.z = x * 6; }
-    for (const x of [-.014, .014]) ball(g, .007, '#222222', x, .11, .08);
-    ball(g, .007, '#ff8fb1', 0, .1, .085);
-    ball(g, .02, soft('#ffffff'), 0, .06, -.06, 1);
+    const [c, lop] = pick(r, [['#f5f5f2', 0], ['#a07c5a', 0], ['#8e8e94', 0], ['#d9a066', 1]]);
+    const fur = soft(c), pink = soft('#ffb3c1');
+    ball(g, .05, fur, 0, .06, -.015, 2).scale.set(.95, .9, 1.2);                     // round body
+    for (const sd of [-1, 1]) ball(g, .03, fur, sd * .03, .045, -.035, 1);           // haunches
+    ball(g, .036, fur, 0, .108, .045, 2).scale.set(1, .95, 1.05);                     // head
+    for (const sd of [-1, 1]) {
+      ball(g, .016, fur, sd * .015, .095, .075, 1);                                   // cheeks
+      ball(g, .008, soft('#1a1a1a'), sd * .026, .115, .068, 1);
+      const ear = rbox(g, .02, .075, .01, fur, sd * .014, lop ? .065 : .125, lop ? .045 : .035, .008);
+      ear.rotation.set(lop ? 0 : -.25, 0, lop ? sd * 2.6 : sd * .12);
+      if (lop) ear.position.set(sd * .04, .07, .045);
+      const inner = rbox(g, .01, .055, .004, pink, 0, 0, 0, .004); inner.rotation.copy(ear.rotation); inner.position.copy(ear.position); inner.position.z += .006; inner.position.y += .008 * (lop ? -1 : 1);
+      ball(g, .012, fur, sd * .016, .012, .04, 1).scale.set(1, .6, 1.4);             // front paws
+      ball(g, .016, fur, sd * .03, .01, -.02, 1).scale.set(.8, .5, 2);               // big back feet
+    }
+    ball(g, .006, soft('#ff8fb1'), 0, .1, .082, 0);
+    ball(g, .02, soft('#ffffff'), 0, .07, -.075, 1);                                  // fluffy tail
     g.scale.setScalar(1.3);
     return g;
   }
-  function makeDucks() {
+  function makeDucks(r) {
     const g = new THREE.Group();
-    const duck = (s, c, z) => {
-      const b = ball(g, .05 * s, soft(c), 0, .045 * s, z, 1); b.scale.set(.9, .8, 1.25);
-      ball(g, .032 * s, soft(c), 0, .1 * s, z + .04 * s, 1);
-      box(g, .022 * s, .01 * s, .03 * s, '#ff8a3d', 0, .095 * s, z + .075 * s);
-      for (const x of [-.014, .014]) ball(g, .005 * s, '#222222', x * s, .108 * s, z + .065 * s);
+    const mallard = r && r() < .4;
+    const duck = (s, z, baby) => {
+      const p = new THREE.Group(); p.position.z = z; p.scale.setScalar(s); g.add(p);
+      const c = baby ? soft('#ffd84d') : soft(mallard ? '#9a8f84' : '#fbfaf6');
+      ball(p, .05, c, 0, .05, 0, 2).scale.set(.95, .75, 1.35);
+      const tail = cone(p, .022, .045, c, 0, .06, -.07, 6); tail.rotation.x = -2.2;
+      if (mallard && !baby) ball(p, .035, soft('#7a4a35'), 0, .065, .04, 1).scale.set(1.1, 1, .8);   // brown chest
+      for (const sd of [-1, 1]) if (!baby) { const w = ball(p, .03, soft(mallard ? '#6f665e' : '#eeebe4'), sd * .042, .06, -.01, 1); w.scale.set(.35, .6, 1.4); }
+      cyl(p, .018, .022, .05, c, 0, .07, .045, 8);
+      ball(p, .03, mallard && !baby ? soft('#1f6b3a') : c, 0, .125, .055, 2);
+      if (mallard && !baby) cyl(p, .02, .02, .006, soft('#ffffff'), 0, .095, .05, 10);   // white collar
+      rbox(p, .026, .01, .034, soft('#ff9f1c'), 0, .112, .088, .004);                   // flat bill
+      for (const sd of [-1, 1]) { ball(p, .005, soft('#111111'), sd * .019, .132, .073, 0); ball(p, .012, soft('#ff9f1c'), sd * .02, .004, .01, 0).scale.set(1, .3, 1.4); }
     };
-    duck(1.2, '#ffffff', .1);
-    for (let i = 0; i < 3; i++) duck(.65, '#ffd23f', -.05 - i * .08);
+    duck(1.2, .1, false);
+    for (let i = 0; i < 3; i++) duck(.6, -.06 - i * .085, true);
     g.scale.setScalar(1.2);
     return g;
   }
+
+
+
+
+
+
 
   /* fish that jump out of the sea and the lake now and then */
   function makeFish() {
@@ -2297,8 +2557,8 @@
     post: 'Letters and parcels start their trip here.',
     policestation: 'Police officers help people and keep everyone safe.',
     station: 'Trains take people to other towns. All aboard!',
-    zoo: 'Giraffes, elephants and lions live here. Giraffes are the tallest animals!',
-    farm: 'Farmers grow food and look after cows, sheep and chickens.',
+    zoo: 'A giraffe, an elephant, a lion, penguins and a cheeky monkey live here. Giraffes are the tallest animals!',
+    farm: 'Farmers grow wheat and lettuces, and look after cows, sheep, a horse and hens. The wind pump brings up water!',
     playground: 'Swing high, slide down and play together!',
     ferris: 'A giant wheel that takes you up high to see the whole town.',
     carousel: 'Round and round go the horses!',
@@ -3446,6 +3706,8 @@
     roar: () => { cry({ f: [[0, 90], [.25, 160], [1.1, 70]], dur: 1.2, filter: 'lowpass', q: [[0, 500], [.3, 1400], [1.1, 300]], Q: 1.5, trem: 28, breath: 1.2, vol: .16, attack: .08 }); },
     // elephant: a trumpet
     trumpet: () => cry({ f: [[0, 420], [.15, 780], [.7, 700]], dur: .75, type: 'square', q: [[0, 1200], [.2, 2400]], Q: 2, vib: [7, 25], vol: .14, attack: .04 }),
+    // penguin: a braying "ah-ah-aaah"
+    penguin: () => { for (const [d, l] of [[0, .14], [.2, .14], [.4, .32]]) cry({ f: [[0, 520], [l * .5, 760], [l, 600]], dur: l, q: [[0, 1300], [l, 1000]], Q: 3, trem: 16, vol: .25, delay: d }); },
     // monkey: "ooh-ooh-aah-aah"
     monkey: () => [[0, 500, 800], [.2, 520, 820], [.4, 700, 1300], [.62, 720, 1350]].forEach(([d, a, b]) => cry({ f: [[0, a], [.12, b]], dur: .16, q: [[0, 900], [.1, 1800]], Q: 4, vol: .3, delay: d })),
     place: () => { tone(330, 660, .12); tone(660, 990, .1, 'sine', .1, .08); },
@@ -4622,16 +4884,23 @@
       sfx.chug(); floatEmoji('🚂', top); toast('Choo choo! All aboard! 🚂', 1800);
     },
     zoo: (o, g, top) => {
-      // the zoo animal that pops up makes its own call
-      const [e, snd] = pick(Math.random, [['🦁', 'roar'], ['🐘', 'trumpet'], ['🐒', 'monkey'], ['🦓', 'neigh'], ['🦜', 'tweet']]);
+      // one of the zoo animals says hello in its own voice and moves: the lion roars, the elephant lifts its trunk…
+      const [who, e, snd, line] = pick(Math.random, [
+        ['lion', '🦁', 'roar', 'Roar! The lion is the king of the jungle! 🦁'],
+        ['elephant', '🐘', 'trumpet', 'The elephant lifts its trunk and trumpets! 🐘'],
+        ['monkey', '🐒', 'monkey', 'The cheeky monkey swings in the tree! 🐒'],
+        ['penguin', '🐧', 'penguin', 'The penguins hop! Penguins can’t fly, but they swim really fast! 🐧'],
+      ]);
+      g.userData.act = { who, t: 0 };
       sfx[snd](); floatEmoji(e, top, 2);
-      toast(pick(Math.random, ['Roar! The lion says hello! 🦁', 'The elephant has a long trunk! 🐘', 'The giraffe eats leaves from tall trees! 🦒']), 2000);
+      toast(line, 2200);
       spawnVisitor(o, 'kid');
     },
     farm: (o, g, top) => {
       // whoever comes out of the farm says hello in their own voice
       const [a, e] = pick(Math.random, [['cow', '🥛'], ['sheep', '🧶'], ['chicken', '🥚'], ['horse', '🌾']]);
-      sfx[{ cow: 'moo', sheep: 'baa', chicken: 'cluck', horse: 'neigh' }[a]](); squish(g); floatEmoji(e, top, 2); spawnVisitor(o, a);
+      g.userData.act = { who: a, t: 0 };
+      sfx[{ cow: 'moo', sheep: 'baa', chicken: 'cluck', horse: 'neigh' }[a]](); floatEmoji(e, top, 2); spawnVisitor(o, a);
     },
     playground: (o, g, top) => { sfx.boing(); floatEmoji(pick(Math.random, ['😄', '🎉', '🤸']), top, 2); toast('Wheee! 🎉', 1400); spawnVisitor(o, 'kid'); spawnVisitor(o, 'kid'); },
     ferris: (o, g, top) => { sfx.fanfare(); floatEmoji('🎡', top); floatEmoji('✨', top, 2); toast('Up, up, up! You can see the whole town!', 1800); },
@@ -5204,7 +5473,7 @@
   }
   const NONE = [];
   // how fast and how high each kind bobs as it walks: [speed, height]
-  const BOB = { walk: [11, .018], dog: [14, .012], cat: [10, .006], bird: [13, .07], cow: [7, .012], sheep: [10, .02], horse: [12, .03], chicken: [16, .03], rabbit: [9, .08], ducks: [14, .012] };
+  const BOB = { walk: [11, .018], dog: [14, .012], cat: [10, .006], bird: [13, .07], cow: [7, .006], sheep: [10, .01], horse: [12, .012], chicken: [16, .012], rabbit: [9, .08], ducks: [14, .012] };
   // traffic lights all change together: green, yellow, then red, when cars wait in front of them
   // (litTiles: road tiles a light looks after; redTiles: the ones cars must not drive onto right now)
   const redTiles = new Set(), litTiles = new Set();
@@ -5334,9 +5603,9 @@
       // four legs walk in diagonal pairs; dogs wag (faster when they're happy), cats swish slowly
       m.walkK += ((moving && m.wait <= 0 ? 1 : 0) - m.walkK) * Math.min(1, dt * 10);
       const sw = Math.sin(time * BOB[m.type][0] + m.phase) * .55 * m.walkK;
-      pet.limbs[0].rotation.x = pet.limbs[3].rotation.x = sw;
-      pet.limbs[1].rotation.x = pet.limbs[2].rotation.x = -sw;
-      pet.tail.rotation.z = m.type === 'dog' ? Math.sin(time * (m.jump > 0 || m.trick ? 30 : 16) + m.phase) * .5 : Math.sin(time * 1.6 + m.phase) * .35;
+      const pairs = pet.limbs.length === 2 ? [1, -1] : [1, -1, -1, 1];
+      pet.limbs.forEach((l, i) => { l.rotation.x = sw * pairs[i]; });
+      if (pet.tail) pet.tail.rotation.z = m.type === 'dog' ? Math.sin(time * (m.jump > 0 || m.trick ? 30 : 16) + m.phase) * .5 : Math.sin(time * 1.6 + m.phase) * .35;
     }
     if (m.trick) runTrick(m, dt);
     if (m.g.userData.legs) animPerson(m, dt, time, moving && m.wait <= 0);

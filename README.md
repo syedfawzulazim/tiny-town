@@ -14,6 +14,8 @@ Open `index.html` in any modern browser. Nothing to install.
 - Tap a building to play with it. Homes can be painted 🎨, grown ⭐ (a mailbox, a swing, then a flag and balloons) and named ✏️. 🔄 changes a thing into another of its kind, like a house into a cottage or a tree into a pine.
 - Tap a person, pet or vehicle for its own card. Give pets and people names (🎲 picks one for you), and give a pet a ❤️ best friend to walk with.
 - Hold your finger on a person or pet to pick them up, then drag to carry them somewhere new. Put them back where they were and they do a trick. Hold a car or bus to ride along.
+- The zoo has a giraffe nibbling an acacia tree, an elephant with a pool, a lion on his rock, penguins and a monkey swinging in the tree. The farm has a barn, silo, wheat and lettuce fields, a wind pump, a hen house with pecking hens, and a paddock with a cow, a horse and sheep. Tap them and an animal answers and moves.
+- Farm animals come in different breeds (Holstein, Jersey and Highland cows; bay, palomino, grey and black horses; black-faced and black sheep; hens and a rooster; lop-eared rabbits; mallard ducks) and walk on moving legs.
 - Every animal has its own voice: dogs bark, cats meow, cows moo, sheep baa, horses whinny, ducks quack (and their babies peep), and at the zoo, lions roar and elephants trumpet.
 - In the daytime, people go about their day: kids go to school and the playground, and grown-ups go to the shops and the café. At night they go home.
 - ↩️ undoes the last change. 🌧️ changes the weather (rain brings umbrellas and puddles, then a rainbow; snow turns the ground white), and 🎵 plays soft music.
