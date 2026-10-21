@@ -3173,6 +3173,15 @@
       box(g, .06, .03, .28, '#d8b07a', -.1, .06, 0);
       box(g, .06, .03, .28, '#d8b07a', .14, .06, 0);
       for (const z of [-.2, .2]) { const oar = box(g, .5, .02, .03, '#d8b07a', -.02, .08, z); oar.rotation.y = z > 0 ? .3 : -.3; }
+    } else if (kind === 'speed') {
+      L = .95; W = .36;
+      hull(g, L, W, .1, '#ffffff', -.05);
+      hull(g, L, W, .05, '#e53935', .05, 1.01);
+      const ws = box(g, .04, .14, .3, '#bfe6ff', .1, .1, 0); ws.rotation.z = .5;
+      box(g, .3, .06, .26, '#2c3e66', -.15, .1, 0);
+      ball(g, .07, '#ffcf9e', -.12, .27, 0, 1);
+      ball(g, .075, '#ffd23f', -.12, .3, 0, 1).scale.set(1, .5, 1);
+      box(g, .1, .14, .1, '#333a44', -.5, .02, 0);
     } else {   // sailboat
       L = 1.05; W = .38;
       hull(g, L, W, .12, '#ffffff', -.06);
@@ -3199,6 +3208,10 @@
     fishing: 'The fishing boat goes out to catch fish!',
     row: 'A little rowing boat. Row, row, row your boat!',
     sail: 'The wind pushes the sailboat along. Whoosh!',
+    speed: 'Vroom! The speedboat zooms over the waves.',
+    crab: 'Snip snap! Crabs walk sideways.',
+    dolphin: 'Dolphins love to jump and play. Eee eee!',
+    whale: 'A big whale! It breathes out through the hole on its head. Whoosh!',
   };
   const vessels = [];
   function addVessel(kind, x, z, ry, path) {
@@ -3216,10 +3229,13 @@
   // the ferry goes all the way round the island; the sailboat zigzags off the beach
   addVessel('ferry', 0, 0, 0, t => [Math.cos(t * .035) * 27, 2 + Math.sin(t * .035) * 26]);
   addVessel('sail', 0, 0, 0, t => [8 + Math.sin(t * .06) * 6, N / 2 + 6.2 + Math.sin(t * .12) * 1.1]);
+  // the speedboat zooms figure-eights west of the harbour, with a white wake behind it
+  addVessel('speed', 0, 0, 0, t => [-13 + Math.sin(t * .32) * 4.2, N / 2 + 6 + Math.sin(t * .64) * 1.3]);
   function stepVessels(dt, time) {
     for (const v of vessels) {
       const g = v.g;
       v.wob = Math.max(0, v.wob - dt * .8);
+      if (v.own) continue;   // beach life moves itself
       if (v.path) {
         const [x, z] = v.path(time), [x2, z2] = v.path(time + .5);
         g.position.x = x; g.position.z = z;
@@ -3229,22 +3245,240 @@
       g.position.y = SEA_Y + Math.sin(time * 1.6 + v.ph) * .025 * big + Math.sin(v.wob * 12) * v.wob * .05;
       g.rotation.x = Math.sin(time * 1.1 + v.ph) * .05 * big + Math.sin(v.wob * 9) * v.wob * .12;
       g.rotation.z = Math.sin(time * .9 + v.ph * 2) * .025 * big;
+      if (v.kind === 'speed') {
+        g.rotation.z += .09 + v.wob * .08;   // nose up
+        v.wake = (v.wake || 0) - dt;
+        if (v.wake <= 0 && !reduceMotion) {
+          v.wake = .07;
+          g.updateMatrixWorld();
+          const back = g.localToWorld(v3.set(-.5, 0, (Math.random() - .5) * .2));
+          puff(back.setY(SEA_Y + .02), { vel: new THREE.Vector3(0, .02, 0), color: 0xffffff, size: .16, grow: 2.6, life: 1.4, alpha: .55 });
+        }
+      }
     }
   }
   function vesselFromEvent(e) {
     setRay(e);
-    const hit = ray.intersectObjects(vessels.map(v => v.g), true)[0];
+    const hit = ray.intersectObjects(vessels.filter(v => v.g.visible).map(v => v.g), true)[0];
     if (!hit) return null;
     return vessels.find(v => { let o = hit.object; while (o && o !== v.g) o = o.parent; return !!o; });
   }
   function toot(v) {
     v.wob = 1;
-    if (v.kind === 'cargo' || v.kind === 'ferry') sfx.horn(); else if (v.kind === 'sail') sfx.sparkle(); else sfx.toot();
     say(VESSELS[v.kind]);
+    if (v.tap) { v.tap(); return; }
+    if (v.kind === 'cargo' || v.kind === 'ferry') sfx.horn(); else if (v.kind === 'sail') sfx.sparkle(); else if (v.kind === 'speed') sfx.vroom(); else sfx.toot();
     const f = v.g.userData.funnel;
     if (f && !reduceMotion) for (let i = 0; i < 6; i++) {
       puff(v.g.localToWorld(f.clone()), { vel: new THREE.Vector3((Math.random() - .5) * .2, .5 + i * .06, (Math.random() - .5) * .2), color: 0xe9e9e9, size: .2, grow: 2.4, life: 2.2 + i * .2, alpha: .6 });
     }
+  }
+  /* ---------- life on the beach: waves washing up the sand, crabs, a kite, dolphins and a whale ---------- */
+  // roughly how high the south beach is (the same slope the sand is built with)
+  const beachY = (x, z) => -.002 - (z - N / 2) * .085 - Math.max(0, Math.abs(x) - N / 2) * .25;
+  // a thin sheet of sea that rushes up the sand and slides back, with lacy foam on its edge
+  const swashMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false,
+    uniforms: { uTime: waterUniforms.uTime, uNight: waterUniforms.uNight },
+    vertexShader: `
+      uniform float uTime; varying vec3 vW; varying float vRise;
+      void main() {
+        vec4 w = modelMatrix * vec4(position, 1.0);
+        float p = fract(uTime / 6.5 + w.x * .012 + .12 * sin(w.x * .21));
+        float up = p < .22 ? sin(p / .22 * 1.5708) : pow(1. - (p - .22) / .78, 1.7);
+        w.y = ${SEA_Y.toFixed(3)} + .004 + up * (.055 + .02 * sin(w.x * .13 + uTime * .05));
+        vRise = p < .22 ? 1. : 0.;
+        vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w;
+      }`,
+    fragmentShader: `
+      uniform float uTime; uniform float uNight; varying vec3 vW; varying float vRise;
+      void main() {
+        float s = vW.z - ${(N / 2).toFixed(1)};
+        float h = -.002 - s * .085 - max(0., abs(vW.x) - ${(N / 2).toFixed(1)}) * .25;
+        float d = vW.y - h;
+        if (d < 0.) discard;
+        float lace = .5 + .5 * sin(vW.x * 11. + uTime * 1.3) * sin(vW.z * 15. - uTime * .9 + vW.x * 3.);
+        float edge = 1. - smoothstep(0., .008 + .012 * lace, d);
+        vec3 c = mix(vec3(.62, .88, .9), vec3(.33, .76, .84), clamp(d / .06, 0., 1.));
+        c = mix(c, vec3(.97, .99, 1.), edge * (.55 + .45 * vRise));
+        float a = clamp(.25 + d * 9., 0., .7) + edge * .6;
+        a *= 1. - smoothstep(4.2, 4.8, s);
+        c = mix(c, c * vec3(.22, .28, .55), uNight);
+        gl_FragColor = vec4(c, clamp(a, 0., 1.));
+      }`,
+  });
+  {
+    const sg = new THREE.PlaneGeometry(N + 6, 3, 160, 6);
+    sg.rotateX(-Math.PI / 2); sg.translate(0, 0, N / 2 + 3.2);
+    const swash = new THREE.Mesh(sg, swashMat);
+    swash.renderOrder = 1;
+    scene.add(swash);
+  }
+  // crabs scuttle sideways over the wet sand, stop, and wave their claws
+  function makeCrab(seed) {
+    const g = new THREE.Group(), r = rngSeed(seed), c = ['#e0573f', '#d9693a', '#c94a3a'][Math.floor(r() * 3)];
+    const shell = ball(g, .085, soft(c), 0, .07, 0, 1); shell.scale.set(1.25, .55, 1);
+    for (const x of [-.03, .03]) { cyl(g, .008, .008, .05, c, x, .08, .05, 5); ball(g, .016, '#1d1d1d', x, .135, .05, 1); }
+    const legs = [];
+    for (const sd of [-1, 1]) {
+      const lg = new THREE.Group();
+      for (let i = 0; i < 3; i++) { const l = cyl(lg, .009, .012, .12, c, 0, -.06, 0, 4); l.position.set(sd * .1, .06, -.04 + i * .04); l.rotation.z = sd * 1.1; }
+      bake(lg); g.add(lg); legs.push(lg);
+    }
+    const claws = [];
+    for (const sd of [-1, 1]) {
+      const cg = new THREE.Group(); cg.position.set(sd * .07, .07, .07);
+      const arm = cyl(cg, .012, .014, .07, c, 0, 0, 0, 5); arm.rotation.x = Math.PI / 2; arm.position.z = .03;
+      const pin = ball(cg, .03, soft(c), 0, .01, .08, 1); pin.scale.set(.8, .6, 1.2);
+      bake(cg); g.add(cg); claws.push(cg);
+    }
+    g.userData.legs = legs; g.userData.claws = claws;
+    bake(g);
+    const hit = new THREE.Mesh(new THREE.BoxGeometry(.5, .3, .45), hitMat); hit.position.y = .1; g.add(hit);
+    scene.add(g);
+    return g;
+  }
+  const beachLife = [];
+  for (const [x, i] of [[-15, 0], [-.5, 1], [12, 2], [15.5, 3]]) {
+    const g = makeCrab(40 + i), v = addCritter('crab', g);
+    Object.assign(v, { home: x, x, z: N / 2 + 2.9 + Math.random() * .4, dir: 1, go: Math.random() * 2, snap: 0 });
+    v.tap = () => { v.snap = 1.2; v.go = -1.4; sfx.crab(); };
+  }
+  function addCritter(kind, g) {
+    const v = { kind, g, own: true, wob: 0, ph: Math.random() * 6 };
+    vessels.push(v); beachLife.push(v);
+    return v;
+  }
+  function stepCrab(v, dt, time) {
+    const u = v.g.userData;
+    v.snap = Math.max(0, v.snap - dt);
+    v.go -= dt;
+    if (v.go < -2 - Math.sin(v.ph) * 1.5) { v.go = 1.5 + Math.random() * 2.5; v.dir = v.x > v.home + 1.2 ? -1 : v.x < v.home - 1.2 ? 1 : Math.random() < .5 ? -1 : 1; }
+    const walking = v.go > 0 && !reduceMotion;
+    if (walking) v.x += v.dir * dt * .35;
+    v.g.position.set(v.x, beachY(v.x, v.z) - .005, v.z);
+    v.g.rotation.y = Math.sin(v.ph) * .3;
+    const w = walking ? Math.sin(time * 22) : 0;
+    u.legs[0].rotation.z = w * .25; u.legs[1].rotation.z = -w * .25;
+    u.legs[0].position.y = u.legs[1].position.y = Math.abs(w) * .01;
+    const up = v.snap > 0 ? .9 + Math.sin(time * 18) * .35 : Math.sin(time * 1.3 + v.ph) * .08;
+    u.claws[0].rotation.x = u.claws[1].rotation.x = -up;
+  }
+  // a kite tugging on its string above the beach
+  const kite = new THREE.Group(), KITE = new THREE.Vector3(2.5, beachY(2.5, N / 2 + 1.2) + .05, N / 2 + 1.2);
+  {
+    const sh = new THREE.Shape(); sh.moveTo(0, .35); sh.lineTo(.25, 0); sh.lineTo(0, -.45); sh.lineTo(-.25, 0); sh.closePath();
+    const body = new THREE.Mesh(new THREE.ShapeGeometry(sh), new THREE.MeshStandardMaterial({ color: 0xff5a7a, side: THREE.DoubleSide, flatShading: true }));
+    const half = new THREE.Shape(); half.moveTo(0, .35); half.lineTo(.25, 0); half.lineTo(0, -.45); half.closePath();
+    const side = new THREE.Mesh(new THREE.ShapeGeometry(half), new THREE.MeshStandardMaterial({ color: 0xffd23f, side: THREE.DoubleSide, flatShading: true }));
+    side.position.z = .002;
+    kite.add(body, side);
+    kite.userData.tail = [];
+    for (let i = 0; i < 6; i++) { const b = box(kite, .09, .05, .02, ['#3fa9f5', '#7ed957', '#ff8f1f'][i % 3], 0, 0, 0); kite.userData.tail.push(b); }
+    const peg = new THREE.Group(); cyl(peg, .02, .02, .25, '#8b5a33', 0, 0, 0, 5); peg.position.copy(KITE); scene.add(bake(peg));
+    scene.add(kite);
+  }
+  const kiteLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([KITE, KITE]), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: .7 }));
+  scene.add(kiteLine);
+  function stepKite(time) {
+    kite.position.set(KITE.x + 1.2 + Math.sin(time * .5) * .5, KITE.y + 3.2 + Math.sin(time * .8) * .3 + Math.sin(time * 2.1) * .08, KITE.z + 2.2 + Math.sin(time * .37) * .3);
+    kite.rotation.set(-.35, Math.PI + .3, Math.sin(time * 1.1) * .25);
+    const tl = kite.userData.tail;
+    for (let i = 0; i < tl.length; i++) { tl[i].position.set(Math.sin(time * 3 - i * .8) * .05 * i, -.55 - i * .12, 0); tl[i].rotation.z = Math.sin(time * 3 - i * .8) * .5; }
+    const pa = kiteLine.geometry.attributes.position;
+    pa.setXYZ(0, KITE.x, KITE.y + .25, KITE.z); pa.setXYZ(1, kite.position.x, kite.position.y - .4, kite.position.z); pa.needsUpdate = true;
+  }
+  // dolphins: grey, with a beak, a fin and a tail, jumping one after another
+  function makeDolphin() {
+    const g = new THREE.Group();
+    const b = ball(g, .1, soft('#7d93ab'), 0, 0, 0, 2); b.scale.set(1.15, 1.05, 3.4);
+    const belly = ball(g, .09, soft('#dfe6ee'), 0, -.03, .03, 1); belly.scale.set(1, .7, 3);
+    const beak = cone(g, .035, .14, '#7d93ab', 0, 0, 0, 6); beak.rotation.x = Math.PI / 2; beak.position.set(0, -.015, .38);
+    const fin = cone(g, .05, .14, '#6a809a', 0, .08, -.02, 4); fin.scale.set(.25, 1, 1.4); fin.rotation.x = -.5;
+    for (const sd of [-1, 1]) { const f = box(g, .16, .015, .07, '#6a809a', sd * .1, -.06, .1); f.rotation.set(0, sd * .5, sd * -.4); }
+    const tail = box(g, .3, .015, .1, '#6a809a', 0, -.01, -.38); tail.scale.x = 1;
+    for (const x of [-.04, .04]) ball(g, .012, '#1d1d1d', x * 1.6, .03, .27);
+    bake(g); g.visible = false; g.rotation.order = 'YXZ';
+    const hit = new THREE.Mesh(new THREE.BoxGeometry(.6, .5, 1), hitMat); g.add(hit);
+    scene.add(g);
+    return g;
+  }
+  const pod = [0, 1, 2].map(i => { const v = addCritter('dolphin', makeDolphin()); v.k = 0; v.tap = () => { sfx.dolphin(); podT = Math.min(podT, .3); }; return v; });
+  let podT = 6, podAt = null;
+  function stepPod(dt) {
+    podT -= dt;
+    if (podT <= 0 && !reduceMotion && pod.every(v => v.k <= 0)) {
+      podT = 14 + Math.random() * 10;
+      const a = Math.random() < .5 ? 0 : Math.PI;   // swimming along the beach, east or west
+      podAt = { x: (Math.random() - .5) * 20, z: N / 2 + 8.5 + Math.random() * 3, a: a + Math.PI / 2 };
+      pod.forEach((v, i) => { v.k = -i * .45 - Math.random() * .1; v.jumps = 2; v.off = (i - 1) * .45; });
+    }
+    for (const v of pod) {
+      if (v.k === 0 && !v.jumps) { v.g.visible = false; continue; }
+      if (v.k < 0) { v.k = Math.min(0, v.k + dt); if (v.k < 0) continue; v.k = 1e-6; }
+      const L = 1.2, p = Math.min(1, v.k);
+      const along = (2 - v.jumps) * (L + .9) + p * L;
+      const fx = Math.sin(podAt.a), fz = Math.cos(podAt.a);
+      const x = podAt.x + fx * along - fz * v.off, z = podAt.z + fz * along + fx * v.off;
+      v.g.visible = true;
+      v.g.position.set(x, SEA_Y - .1 + Math.sin(p * Math.PI) * .75, z);
+      v.g.rotation.set(-Math.cos(p * Math.PI) * .95, podAt.a, 0);
+      if (v.k === 1e-6 || p >= 1) puff(new THREE.Vector3(x, SEA_Y + .03, z), { vel: new THREE.Vector3(0, .5, 0), color: 0xffffff, size: .2, grow: 2.2, life: .7, alpha: .75 });
+      v.k += dt / 1.1;
+      if (v.k >= 1) { v.jumps--; v.k = v.jumps ? -.9 : 0; if (!v.jumps) v.g.visible = false; }
+    }
+  }
+  // a whale far out: its back rolls up, it blows a spout of spray, then lifts its tail and dives
+  function makeWhale() {
+    const g = new THREE.Group();
+    const b = ball(g, .5, soft('#3f566f'), 0, 0, 0, 2); b.scale.set(1, .75, 3.2);
+    const belly = ball(g, .44, soft('#a9b9c9'), 0, -.12, .2, 1); belly.scale.set(.95, .55, 2.9);
+    const fin = cone(g, .12, .22, '#34495f', 0, .32, -.8, 4); fin.scale.set(.3, 1, 1.4); fin.rotation.x = -.6;
+    for (const x of [-.18, .18]) ball(g, .035, '#1d1d1d', x * 2.2, .05, 1.15);
+    const flukes = new THREE.Group(); flukes.position.z = -1.5;
+    ball(flukes, .2, soft('#3f566f'), 0, 0, -.1, 1).scale.set(.75, .6, 2);
+    for (const sd of [-1, 1]) { const f = ball(flukes, .3, soft('#34495f'), sd * .3, 0, -.5, 1); f.scale.set(1.15, .12, .5); f.rotation.y = sd * .55; }
+    bake(flukes); g.add(flukes); g.userData.flukes = flukes;
+    bake(g); g.visible = false; g.rotation.order = 'YXZ';
+    const hit = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1, 3.4), hitMat); g.add(hit);
+    scene.add(g);
+    return g;
+  }
+  const whale = addCritter('whale', makeWhale());
+  Object.assign(whale, { k: 0, wait: 20 });
+  whale.tap = () => { sfx.whale(); spout(whale, 1.4); };
+  function spout(v, big = 1) {
+    if (reduceMotion) return;
+    v.g.updateMatrixWorld();
+    const top = v.g.localToWorld(v3.set(0, .4, .8)).clone(); top.y = Math.max(top.y, SEA_Y + .1);
+    for (let i = 0; i < 10; i++) puff(top, { vel: new THREE.Vector3((Math.random() - .5) * .35, (1.6 + Math.random() * .8) * big, (Math.random() - .5) * .35), color: 0xffffff, size: .18, grow: 2.4, life: 1.1 + Math.random() * .4, alpha: .7 });
+  }
+  function stepWhale(dt) {
+    const v = whale;
+    if (v.k <= 0) {
+      v.wait -= dt;
+      if (v.wait <= 0 && !reduceMotion) { v.k = 1e-6; v.x = (Math.random() - .5) * 26; v.z = N / 2 + 14 + Math.random() * 4; v.a = Math.random() < .5 ? Math.PI / 2 : -Math.PI / 2; v.blown = 0; }
+      else { v.g.visible = false; return; }
+    }
+    v.k += dt / 11;
+    const p = v.k;
+    if (p >= 1) { v.k = 0; v.wait = 28 + Math.random() * 20; v.g.visible = false; return; }
+    const fx = Math.sin(v.a), fz = Math.cos(v.a), go = p * 3;
+    // up for the first part, a slow roll along the top, then nose down and tail up
+    const rise = Math.min(1, p / .15), dive = Math.max(0, (p - .62) / .38);
+    v.g.visible = true;
+    v.g.position.set(v.x + fx * go, SEA_Y - .75 + rise * .62 - dive * dive * 1.5, v.z + fz * go);
+    v.g.rotation.set(dive * .85 - (1 - rise) * .2, v.a, 0);
+    v.g.userData.flukes.rotation.x = -dive * .5 + Math.sin(p * 30) * .05;
+    if (p > .2 && v.blown === 0) { v.blown = 1; spout(v); }
+    if (p > .42 && v.blown === 1) { v.blown = 2; spout(v, .8); }
+    if (dive > .55 && v.blown === 2) { v.blown = 3; v.g.updateMatrixWorld(); puff(v.g.localToWorld(v3.set(0, 0, -1.8)).clone().setY(SEA_Y + .03), { vel: new THREE.Vector3(0, .6, 0), color: 0xffffff, size: .4, grow: 2.5, life: 1, alpha: .7 }); }
+  }
+  function stepBeach(dt, time) {
+    for (const v of beachLife) if (v.kind === 'crab') stepCrab(v, dt, time);
+    stepKite(time);
+    stepPod(dt);
+    stepWhale(dt);
   }
   const flyGeo = new THREE.BufferGeometry();
   const fp = [];
@@ -3680,38 +3914,113 @@
     if (trem) { const l = ac.createOscillator(), lg = ac.createGain(); l.frequency.value = trem; lg.gain.value = .5; out.gain.value = .5; l.connect(lg).connect(out.gain); stops.push(l); }
     for (const x of stops) { x.start(t); x.stop(t + dur + .05); }
   }
+  /* richer animal voices, built like a real voice: a throat (two slightly out-of-tune buzzes with a natural wobble),
+     three mouth resonances (formants) that move as the mouth opens and closes, breath, a growl for big animals,
+     and a touch of outdoor echo. Every call comes out a little different */
+  let animalBus = null;
+  function voiceBus() {
+    if (animalBus && animalBus.context === ac) return animalBus;
+    const g = ac.createGain(), verb = ac.createConvolver(), wet = ac.createGain();
+    const len = Math.floor(ac.sampleRate * .8), ir = ac.createBuffer(2, len, ac.sampleRate), gap = ac.sampleRate * .015;
+    for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = i < gap ? 0 : (Math.random() * 2 - 1) * Math.pow(1 - i / len, 4); }
+    verb.buffer = ir; wet.gain.value = .16;
+    g.connect(ac.destination); g.connect(verb).connect(wet).connect(ac.destination);
+    return animalBus = g;
+  }
+  const ramp = (p, pts, t, k = 1) => pts.forEach(([at, v], i) => (i ? p.exponentialRampToValueAtTime(v * k, t + at) : p.setValueAtTime(v * k, t)));
+  let growlCurve = null;
+  // f: [[time, hz], …]  fm: [[time, [F1, F2, F3]], …]  vib: [rate, depth hz]  trem: [rate, depth 0-1]
+  function voc({ f, dur, fm, amp = [1, .6, .35], Q = [5, 8, 11], src = 'sawtooth', spread = 7, jitter = .015, vib, trem, breath = 0, sub = 0, growl = 0, attack = .03, release = .3, vol = .3, delay = 0 }) {
+    if (!ac || muted) return;
+    const t = ac.currentTime + delay, k = 1 + (Math.random() - .5) * .12, stops = [];
+    const mix = ac.createGain(), sum = ac.createGain(), env = ac.createGain(), out = ac.createGain();
+    const throat = [];
+    for (const d of [-spread, spread]) {
+      const o = ac.createOscillator(); o.type = src; o.detune.value = d; ramp(o.frequency, f, t, k);
+      o.connect(mix); throat.push(o); stops.push(o);
+    }
+    if (vib) { const l = ac.createOscillator(), lg = ac.createGain(); l.frequency.value = vib[0]; lg.gain.value = vib[1] * k; l.connect(lg); throat.forEach(o => lg.connect(o.frequency)); stops.push(l); }
+    if (jitter) {
+      const n = noiseSource(), lp = ac.createBiquadFilter(), jg = ac.createGain();
+      lp.type = 'lowpass'; lp.frequency.value = 22; jg.gain.value = f[0][1] * k * jitter * 8;
+      n.connect(lp).connect(jg); throat.forEach(o => jg.connect(o.frequency)); stops.push(n);
+    }
+    if (breath) { const n = noiseSource(), hp = ac.createBiquadFilter(), bg = ac.createGain(); hp.type = 'highpass'; hp.frequency.value = 500; bg.gain.value = breath; n.connect(hp).connect(bg).connect(mix); stops.push(n); }
+    for (let i = 0; i < 3; i++) {
+      const bp = ac.createBiquadFilter(), g = ac.createGain();
+      bp.type = 'bandpass'; bp.Q.value = Q[i]; g.gain.value = amp[i];
+      fm.forEach(([at, F], j) => (j ? bp.frequency.exponentialRampToValueAtTime(F[i], t + at) : bp.frequency.setValueAtTime(F[i], t)));
+      mix.connect(bp).connect(g).connect(sum);
+    }
+    if (sub) { const o = ac.createOscillator(), g = ac.createGain(); o.type = 'sine'; ramp(o.frequency, f, t, k); g.gain.value = sub; o.connect(g).connect(sum); stops.push(o); }
+    let last = sum;
+    if (growl) {
+      if (!growlCurve) { growlCurve = new Float32Array(256); for (let i = 0; i < 256; i++) { const x = i / 127.5 - 1; growlCurve[i] = Math.tanh(x * 3); } }
+      const ws = ac.createWaveShaper(), pre = ac.createGain(); ws.curve = growlCurve; pre.gain.value = 1 + growl * 3;
+      sum.connect(pre).connect(ws); last = ws;
+    }
+    env.gain.setValueAtTime(.0001, t);
+    env.gain.exponentialRampToValueAtTime(vol, t + attack);
+    env.gain.setValueAtTime(vol, t + dur * (1 - release));
+    env.gain.exponentialRampToValueAtTime(.0001, t + dur);
+    if (trem) { const l = ac.createOscillator(), lg = ac.createGain(); l.frequency.value = trem[0]; lg.gain.value = trem[1] / 2; out.gain.value = 1 - trem[1] / 2; l.connect(lg).connect(out.gain); stops.push(l); }
+    last.connect(env).connect(out).connect(voiceBus());
+    for (const x of stops) { x.start(t); x.stop(t + dur + .05); }
+  }
+  // mouth shapes (F1, F2, F3), roughly like the vowels we make
+  const M = { m: [280, 900, 2300], oo: [320, 800, 2300], o: [500, 880, 2400], ah: [780, 1200, 2500], a: [720, 1650, 2550], e: [520, 1850, 2550], ee: [320, 2300, 3000] };
   const sfx = {
-    // dog: two short, gruff barks
-    woof: () => { for (const d of [0, .22]) { cry({ f: [[0, 330], [.04, 420], [.13, 190]], dur: .15, q: [[0, 700], [.05, 1300], [.14, 500]], Q: 1.5, breath: .5, vol: .2, attack: .008, delay: d }); } },
-    // cat: "mee-ow", the mouth opening and closing
-    meow: () => cry({ f: [[0, 560], [.18, 820], [.5, 520], [.62, 460]], dur: .65, q: [[0, 900], [.2, 2200], [.45, 1100], [.62, 700]], Q: 4, vib: [6, 12], vol: .27, attack: .05 }),
-    // cow: a long, low "mmmooo"
-    moo: () => cry({ f: [[0, 125], [.3, 150], [1.1, 105]], dur: 1.2, filter: 'lowpass', q: [[0, 350], [.35, 900], [1.1, 420]], Q: 3, vib: [4.5, 4], vol: .12, attack: .12 }),
-    // sheep: a shaky "baa-aa"
-    baa: () => cry({ f: [[0, 430], [.08, 470], [.6, 400]], dur: .65, q: [[0, 1100], [.1, 1700], [.6, 1100]], Q: 3, trem: 22, vol: .4, attack: .03 }),
-    // chicken: quick clucks, then a long "bawk"
+    // dog: a gruff "wuh-wuff!", twice
+    woof: () => [[0, 1], [.27, .9]].forEach(([d, p]) => voc({ f: [[0, 380 * p], [.03, 540 * p], [.17, 230 * p]], dur: .2, fm: [[0, M.oo], [.04, M.ah], [.19, M.o]], breath: .5, growl: .6, jitter: .04, attack: .006, release: .6, vol: .15, delay: d })),
+    // cat: "mi-aa-ow", the mouth opening wide and closing again
+    meow: () => voc({ f: [[0, 520], [.12, 720], [.4, 740], [.72, 440]], dur: .78, fm: [[0, M.m], [.12, M.ee], [.36, M.ah], [.62, M.o], [.78, M.oo]], vib: [5.5, 10], breath: .12, attack: .05, release: .35, vol: .2 }),
+    // cow: "mmm-ooo-oo", long, low and breathy
+    moo: () => voc({ f: [[0, 105], [.35, 140], [1, 128], [1.4, 95]], dur: 1.45, fm: [[0, M.m], [.3, M.oo], [.6, M.o], [1.2, M.o], [1.45, M.m]], Q: [4, 7, 9], sub: .35, breath: .2, vib: [4, 2], jitter: .02, attack: .15, release: .3, vol: .31 }),
+    // sheep: "b-aa-aa", with the shaky bleat
+    baa: () => voc({ f: [[0, 330], [.08, 365], [.55, 330], [.7, 300]], dur: .72, fm: [[0, M.m], [.08, M.a], [.6, M.a], [.72, M.e]], vib: [8, 16], trem: [8, .55], breath: .15, attack: .03, vol: .33 }),
+    // chicken: "buk, buk, buk… ba-GAWK!"
     cluck: () => {
-      for (let i = 0; i < 3; i++) cry({ f: [[0, 900], [.06, 600]], dur: .08, type: 'square', q: [[0, 1400]], Q: 3, vol: .2, attack: .005, delay: i * .14 });
-      cry({ f: [[0, 700], [.08, 1100], [.35, 800]], dur: .38, q: [[0, 1500], [.2, 1900]], Q: 3, vol: .25, delay: .45 });
+      for (let i = 0; i < 3; i++) voc({ f: [[0, 430], [.06, 360]], dur: .09, src: 'square', fm: [[0, M.o], [.09, M.ah]], attack: .005, release: .6, vol: .1, delay: i * .15 + Math.random() * .03 });
+      voc({ f: [[0, 520], [.06, 920], [.32, 700]], dur: .36, src: 'square', fm: [[0, M.o], [.06, M.ah], [.36, M.o]], growl: .4, breath: .1, vol: .11, delay: .52 });
     },
-    // horse: a high, wobbly whinny, then a snort
-    neigh: () => { cry({ f: [[0, 700], [.12, 1250], [.8, 650]], dur: .85, q: [[0, 1800], [.8, 1200]], Q: 2.5, vib: [11, 70], vol: .25, attack: .03 }); noise(.25, .12, 'bandpass', 600, .95); },
-    // duck: nasal "quack quack"
-    quack: () => { for (const d of [0, .22]) cry({ f: [[0, 300], [.05, 330], [.15, 240]], dur: .16, q: [[0, 1100], [.15, 900]], Q: 7, breath: .25, vol: .45, attack: .01, delay: d }); },
+    // horse: a high, shaking whinny that falls away, then a snort
+    neigh: () => { voc({ f: [[0, 900], [.15, 1400], [.9, 560], [1.1, 450]], dur: 1.15, fm: [[0, M.e], [.5, M.a], [1.1, M.ah]], vib: [13, 110], breath: .3, jitter: .03, attack: .04, vol: .25 }); noise(.35, .25, 'bandpass', 500, 1.2, 32); },
+    // duck: a nasal "kwaak kwaak"
+    quack: () => [[0, 1], [.24, .92]].forEach(([d, p]) => voc({ f: [[0, 240 * p], [.04, 275 * p], [.19, 200 * p]], dur: .2, src: 'square', fm: [[0, M.a], [.19, M.ah]], Q: [9, 12, 14], growl: .7, breath: .2, attack: .008, release: .5, vol: .11, delay: d })),
     // ducklings: tiny peeps
     peep: () => { for (let i = 0; i < 3; i++) cry({ f: [[0, 2600], [.07, 3300]], dur: .08, type: 'sine', filter: 'highpass', q: [[0, 1500]], Q: 1, vol: .06, attack: .005, delay: .3 + i * .1 }); },
-    // bird: a quick bright chirp-chirp-chirp
-    tweet: () => { for (let i = 0; i < 3; i++) cry({ f: [[0, 2600], [.05, 4200], [.09, 3000]], dur: .1, type: 'sine', filter: 'highpass', q: [[0, 1500]], Q: 1, vol: .07, attack: .005, delay: i * .12 }); },
+    // bird: a little song, a new one every time
+    tweet: () => {
+      let d = 0;
+      for (let i = 0, n = 3 + Math.floor(Math.random() * 3); i < n; i++) {
+        const a = 2200 + Math.random() * 2000, b = a * (Math.random() < .5 ? 1.4 : .7), l = .06 + Math.random() * .07;
+        cry({ f: [[0, a], [l * .6, b], [l, a]], dur: l, type: 'sine', filter: 'highpass', q: [[0, 1500]], Q: 1, vib: [40, 150], vol: .07, attack: .005, delay: d });
+        d += l + .03 + Math.random() * .06;
+      }
+    },
     // rabbit: sniff-sniff and a little squeak
     squeak: () => { noise(.06, .09, 'highpass', 3000); noise(.06, .09, 'highpass', 3000, .12); cry({ f: [[0, 1500], [.08, 2100], [.16, 1700]], dur: .17, type: 'sine', filter: 'highpass', q: [[0, 900]], Q: 1, vol: .07, delay: .3 }); },
-    // lion: a big rumbling roar
-    roar: () => { cry({ f: [[0, 90], [.25, 160], [1.1, 70]], dur: 1.2, filter: 'lowpass', q: [[0, 500], [.3, 1400], [1.1, 300]], Q: 1.5, trem: 28, breath: 1.2, vol: .16, attack: .08 }); },
-    // elephant: a trumpet
-    trumpet: () => cry({ f: [[0, 420], [.15, 780], [.7, 700]], dur: .75, type: 'square', q: [[0, 1200], [.2, 2400]], Q: 2, vib: [7, 25], vol: .14, attack: .04 }),
-    // penguin: a braying "ah-ah-aaah"
-    penguin: () => { for (const [d, l] of [[0, .14], [.2, .14], [.4, .32]]) cry({ f: [[0, 520], [l * .5, 760], [l, 600]], dur: l, q: [[0, 1300], [l, 1000]], Q: 3, trem: 16, vol: .25, delay: d }); },
-    // monkey: "ooh-ooh-aah-aah"
-    monkey: () => [[0, 500, 800], [.2, 520, 820], [.4, 700, 1300], [.62, 720, 1350]].forEach(([d, a, b]) => cry({ f: [[0, a], [.12, b]], dur: .16, q: [[0, 900], [.1, 1800]], Q: 4, vol: .3, delay: d })),
+    // lion: a deep, rough "RRRAAAOOWWR" that rumbles away
+    roar: () => voc({ f: [[0, 95], [.2, 170], [.7, 140], [1.5, 70]], dur: 1.6, fm: [[0, M.o], [.25, M.ah], [1, M.ah], [1.6, M.oo]], Q: [3, 5, 7], growl: 1, sub: .5, jitter: .08, trem: [32, .5], breath: .8, attack: .1, release: .4, vol: .16 }),
+    // elephant: a bright, brassy trumpet through the trunk
+    trumpet: () => voc({ f: [[0, 480], [.12, 920], [.6, 860], [.85, 700]], dur: .9, fm: [[0, [900, 1900, 3300]], [.1, [1100, 2400, 3600]], [.9, [900, 2000, 3200]]], Q: [4, 6, 8], vib: [9, 30], growl: .8, breath: .3, jitter: .03, attack: .05, release: .25, vol: .11 }),
+    // penguin: a donkey-like bray, "ah, ah, aaaah"
+    penguin: () => [[0, .14], [.22, .14], [.44, .4]].forEach(([d, l]) => voc({ f: [[0, 480], [l * .4, 720], [l, 560]], dur: l, fm: [[0, M.ah], [l, M.a]], trem: [14, .5], growl: .4, breath: .15, vol: .13, delay: d })),
+    // monkey: "hoo-hoo-HAA-HAA"
+    monkey: () => [[0, 450, 700, M.oo], [.2, 470, 720, M.oo], [.42, 700, 1200, M.ah], [.64, 720, 1250, M.ah]].forEach(([d, a, b, m]) => voc({ f: [[0, a], [.13, b]], dur: .17, fm: [[0, M.oo], [.12, m]], breath: .1, attack: .01, release: .4, vol: .55, delay: d })),
+    // speedboat: an outboard motor revving up
+    vroom: () => cry({ f: [[0, 80], [.3, 150], [1, 115]], dur: 1.1, filter: 'lowpass', q: [[0, 500], [.3, 1300], [1.1, 500]], Q: 2, trem: 38, breath: .4, vol: .16, attack: .05 }),
+    // crab: snip snip snip
+    crab: () => { for (let i = 0; i < 4; i++) noise(.035, .2, 'highpass', 3500 + i * 300, i * .11); },
+    // dolphin: a whistle that swoops up and down, then quick clicks
+    dolphin: () => {
+      cry({ f: [[0, 2600], [.18, 4200], [.35, 3000], [.5, 3800]], dur: .55, type: 'sine', filter: 'highpass', q: [[0, 1200]], Q: 1, vib: [16, 160], vol: .07, attack: .02 });
+      for (let i = 0; i < 6; i++) noise(.012, .18, 'highpass', 5000, .6 + i * .045);
+    },
+    // whale: a long, low song, and a whoosh of breath
+    whale: () => { voc({ f: [[0, 160], [.7, 300], [1.6, 220], [2.3, 120]], dur: 2.4, fm: [[0, M.oo], [1, M.o], [2.4, M.oo]], vib: [3, 6], breath: .1, attack: .4, release: .4, vol: .5 }); noise(.7, .18, 'highpass', 1500); },
+    // cat purring: breathing out, then in, with the 25-a-second rumble
+    purr: () => { noise(.65, .3, 'lowpass', 380, 0, 26); noise(.55, .2, 'lowpass', 300, .7, 24); },
     place: () => { tone(330, 660, .12); tone(660, 990, .1, 'sine', .1, .08); },
     road: () => tone(500, 560, .05, 'triangle', .08),
     erase: () => tone(600, 140, .2, 'triangle', .12),
@@ -3734,7 +4043,6 @@
     sparkle: () => { [1568, 2093, 2637].forEach((f, i) => tone(f, f * 1.01, .2, 'sine', .06, i * .08)); },
     undo: () => { tone(880, 440, .14, 'sine', .09); tone(440, 330, .14, 'sine', .07, .1); },
     redo: () => { tone(440, 660, .14, 'sine', .09); tone(660, 880, .14, 'sine', .07, .1); },
-    purr: () => noise(1.2, .35, 'lowpass', 320, 0, 26),
     paint: () => { tone(900, 1400, .08, 'sine', .07); tone(1200, 1800, .1, 'sine', .06, .07); },
     grow: () => { [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, f, .16, 'sine', .08, i * .09)); },
   };
@@ -5769,6 +6077,7 @@
     boat.position.set(LAKE.x - N / 2 + Math.cos(a) * R, .01 + Math.sin(time * 2) * .015, LAKE.z - N / 2 + Math.sin(a) * R);
     boat.rotation.y = -a;
     stepVessels(dt, time);
+    stepBeach(dt, time);
     for (const b of birds) {
       const u = b.userData;
       u.a += u.s * dt; u.t += dt;
