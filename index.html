@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="description" content="Tiny Town Builder: a 3D town building game for kids aged 5 to 13.">
+<meta name="description" content="Tiny Town Builder: a 3D town building game for kids aged 4 to 10.">
 <title>Tiny Town Builder</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -145,6 +145,49 @@
   .tab .ico { font-size: 1.25rem; }
   .tab[aria-selected="true"] { background: var(--sun); border-color: var(--sun-edge); box-shadow: 0 3px 0 var(--sun-edge); }
 
+  .tray-body { display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 100%; }
+  .tray-body > * { max-width: 100%; }
+  /* the one big button that opens and closes the build tray */
+  .build-btn {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 26px 8px 20px;
+    font-weight: 800; font-size: 1.3rem; line-height: 1.2;
+    background: var(--sun);
+    border: 2px solid var(--sun-edge);
+    border-radius: 999px;
+    box-shadow: 0 4px 0 var(--sun-edge);
+    transition: transform .1s, box-shadow .1s;
+  }
+  .build-btn .ico { font-size: 1.5rem; }
+  .build-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--sun-edge); }
+  .build-btn[aria-expanded="true"] { background: var(--panel); border-color: var(--edge); box-shadow: 0 4px 0 var(--edge); font-size: 1rem; padding: 4px 18px 4px 14px; }
+  .build-btn[aria-expanded="true"] .ico { font-size: 1rem; }
+  .rbtn.age-btn { background: var(--sun); border-color: var(--sun-edge); box-shadow: 0 4px 0 var(--sun-edge); font-size: 1.4rem; }
+
+  /* "How old are you?" */
+  .age-pick {
+    position: absolute; inset: 0;
+    display: grid; place-items: center;
+    padding: 16px max(16px, var(--safe-r)) 16px max(16px, var(--safe-l));
+    background: rgba(35, 50, 74, .45);
+  }
+  .age-card { position: relative; width: min(520px, 100%); padding: 18px 18px 20px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .age-card .card-x { position: absolute; top: 10px; right: 10px; }
+  .age-hi { font-size: 2.6rem; line-height: 1; }
+  .age-card h1 { margin: 0; font-size: 1.9rem; line-height: 1.1; text-wrap: balance; }
+  .ages { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+  .age {
+    width: 64px; height: 64px; border-radius: 50%;
+    font-weight: 800; font-size: 1.9rem; line-height: 1;
+    background: var(--c); color: #fff;
+    border: 3px solid #fff;
+    box-shadow: 0 0 0 2px var(--c), 0 5px 0 2px rgba(35, 50, 74, .25);
+    text-shadow: 0 2px 0 rgba(0, 0, 0, .18);
+  }
+  .age:active { transform: translateY(3px); }
+  .age[aria-pressed="true"] { box-shadow: 0 0 0 4px var(--ink), 0 5px 0 4px rgba(35, 50, 74, .25); }
+  .age-modes { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 14px; color: var(--ink-soft); font-weight: 700; font-size: .95rem; }
+
   .shelf { display: flex; gap: 10px; align-items: stretch; padding: 10px; }
   .items { display: flex; gap: 8px; overflow-x: auto; min-width: 0; scrollbar-width: thin; padding: 6px 2px 8px; }
   .item {
@@ -252,7 +295,9 @@
     animation: hint-bob 1.6s ease-in-out infinite;
   }
   .pick-hint.nudge { animation: hint-nudge .5s ease-out, hint-bob 1.6s ease-in-out .5s infinite; }
-  .tray.idle .shelf { animation: shelf-glow 1.6s ease-in-out infinite; }
+  .tray.idle.open .shelf { animation: shelf-glow 1.6s ease-in-out infinite; }
+  .tray.idle:not(.open) .build-btn { animation: build-glow 1.6s ease-in-out infinite; }
+  @keyframes build-glow { 50% { box-shadow: 0 4px 0 var(--sun-edge), 0 0 0 7px rgba(255, 201, 60, .45); } }
   @keyframes hint-bob { 50% { transform: translateY(-4px); } }
   @keyframes hint-nudge { 30% { transform: scale(1.15); } 60% { transform: scale(.95); } }
   @keyframes shelf-glow { 50% { box-shadow: 0 4px 0 var(--edge), 0 0 0 5px rgba(255, 201, 60, .55); } }
@@ -327,7 +372,22 @@
   }
   @media (prefers-reduced-motion: reduce) {
     .item, .rbtn, .toast { transition: none; }
-    .pick-hint, .pick-hint.nudge, .tray.idle .shelf, .rbtn.pulse { animation: none; }
+    .pick-hint, .pick-hint.nudge, .tray.idle.open .shelf, .tray.idle:not(.open) .build-btn, .rbtn.pulse { animation: none; }
+  }
+  /* Little Builders (4–7): bigger things to tap, and fewer buttons */
+  .little .item { width: 100px; min-height: 100px; }
+  .little .item .ico { font-size: 2.7rem; }
+  .little .item .lbl { font-size: .95rem; }
+  .little .build-btn:not([aria-expanded="true"]) { font-size: 1.6rem; padding: 10px 34px 10px 26px; }
+  .little .build-btn:not([aria-expanded="true"]) .ico { font-size: 1.9rem; }
+  .little #rotL, .little #rotR, .little #turn, .little #clear { display: none; }
+  @media (max-width: 600px), (max-height: 500px) {
+    .little .item { width: 78px; min-height: 78px; }
+    .little .item .ico { font-size: 2.1rem; }
+    .little .item .lbl { font-size: .8rem; }
+    .build-btn { font-size: 1.15rem; }
+    .age { width: 56px; height: 56px; font-size: 1.6rem; }
+    .age-card h1 { font-size: 1.5rem; }
   }
 </style>
 </head>
@@ -360,6 +420,7 @@
       <button class="rbtn" id="weather" title="Change the weather (W)" aria-label="Make it rain">☀️</button>
       <button class="rbtn" id="music" title="Music on or off" aria-label="Turn music on" aria-pressed="false">🎵</button>
       <button class="rbtn" id="mute" title="Sound and voice on or off" aria-label="Turn sound and voice off">🔊</button>
+      <button class="rbtn age-btn" id="ageBtn" title="Change age" aria-label="Change age">?</button>
       <button class="rbtn" id="clear" title="Start a new empty town" aria-label="Start a new empty town">🗑️</button>
     </div>
   </div>
@@ -402,16 +463,32 @@
   <div class="toast off" id="toast" role="status" aria-live="polite"></div>
 
   <nav class="tray idle" id="tray" aria-label="Build things">
-    <div class="pick-hint" id="pickHint" role="status">👇 Pick something to build!</div>
-    <div class="tabs" id="tabs" role="tablist"></div>
-    <div class="shelf panel">
-      <div class="items" id="items" role="toolbar" aria-label="Things to build"></div>
-      <div class="divider"></div>
-      <button class="item eraser" id="eraser" aria-pressed="false" title="Remove things">
-        <span class="ico">🧽</span><span class="lbl">Eraser</span>
-      </button>
+    <div class="pick-hint" id="pickHint" role="status">👇 Tap Build to start!</div>
+    <div class="tray-body" id="trayBody" hidden>
+      <div class="tabs" id="tabs" role="tablist"></div>
+      <div class="shelf panel">
+        <div class="items" id="items" role="toolbar" aria-label="Things to build"></div>
+        <div class="divider"></div>
+        <button class="item eraser" id="eraser" aria-pressed="false" title="Remove things">
+          <span class="ico">🧽</span><span class="lbl">Eraser</span>
+        </button>
+      </div>
     </div>
+    <button class="build-btn" id="buildBtn" aria-expanded="false" aria-controls="trayBody" title="Build things (B)"><span class="ico">🔨</span><span class="lbl">Build</span></button>
   </nav>
+
+  <div class="age-pick" id="agePick" role="dialog" aria-modal="true" aria-labelledby="ageQ" hidden>
+    <div class="age-card panel">
+      <button class="card-x" id="ageX" aria-label="Close" hidden>✕</button>
+      <div class="age-hi" aria-hidden="true">🎂</div>
+      <h1 id="ageQ">How old are you?</h1>
+      <div class="ages" id="ages"></div>
+      <div class="age-modes">
+        <span class="mode"><span aria-hidden="true">🧸</span> 4–7 Little Builders</span>
+        <span class="mode"><span aria-hidden="true">🚀</span> 8–10 Big Builders</span>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -4125,7 +4202,7 @@
 
   function renderTabs() {
     tabsEl.innerHTML = '';
-    for (const [id, ico, label, extra] of CATS) {
+    for (const [id, ico, label, extra] of tabsNow()) {
       const b = document.createElement('button');
       b.className = 'tab'; b.id = 'tab-' + id;
       b.setAttribute('role', 'tab');
@@ -4133,7 +4210,7 @@
       b.innerHTML = `<span class="ico">${ico}</span><span>${label}${extra ? ` <span class="lbl-long">${extra}</span>` : ''}</span>`;
       b.onclick = () => {
         cat = id; renderTabs(); renderItems();
-        if (tool !== 'erase' && ITEMS[tool].cat !== id) setTool('look');
+        if (tool !== 'erase' && !itemsIn(id).includes(tool)) setTool('look');
         say(extra ? `${label} ${extra.replace('&', 'and')}` : label);
       };
       tabsEl.appendChild(b);
@@ -4141,8 +4218,8 @@
   }
   function renderItems() {
     itemsEl.innerHTML = '';
-    for (const [id, it] of Object.entries(ITEMS)) {
-      if (it.cat !== cat) continue;
+    for (const id of itemsIn(cat)) {
+      const it = ITEMS[id];
       const b = document.createElement('button');
       b.className = 'item'; b.id = 'item-' + id;
       b.setAttribute('aria-pressed', String(tool === id));
@@ -4181,9 +4258,11 @@
     try { localStorage.setItem(BUILT_KEY, '1'); } catch (e) { /* storage unavailable */ }
     updateHint();
   }
+  const hintText = () => (trayOpen ? 'Pick something to build!' : 'Tap Build to start!');
   function updateHint() {
     const idle = !hasBuilt && tool === 'look' && !moving;
     hintEl.hidden = !idle;
+    hintEl.textContent = '👇 ' + hintText();
     trayEl.classList.toggle('idle', idle);
   }
   function nudgeHint() {
@@ -4192,7 +4271,91 @@
     void hintEl.offsetWidth;   // restart the animation
     hintEl.classList.add('nudge');
     sfx.nope();
-    say('Pick something to build!');
+    say(hintText());
+  }
+  /* 🔨 the build tray stays tucked away until a child opens it, so the town gets the whole screen */
+  const trayBody = document.getElementById('trayBody'), buildBtn = document.getElementById('buildBtn');
+  let trayOpen = false;
+  function setTray(open, quiet) {
+    trayOpen = open;
+    trayBody.hidden = !open;
+    trayEl.classList.toggle('open', open);
+    buildBtn.setAttribute('aria-expanded', String(open));
+    buildBtn.innerHTML = open ? '<span class="ico">✕</span><span class="lbl">Close</span>' : '<span class="ico">🔨</span><span class="lbl">Build</span>';
+    if (!open && tool !== 'look' && !moving) setTool('look');   // nothing gets built by accident with the tray shut
+    updateHint();
+    if (!quiet) { if (open) { sfx.hi(); say('What shall we build?'); } else sfx.road(); }
+  }
+  buildBtn.onclick = () => { ensureAudio(); setTray(!trayOpen); };
+
+  /* ---------- age: Little Builders (4–7) get fewer, bigger, simpler things; Big Builders (8–10) get everything ---------- */
+  const AGE_KEY = 'tiny-town-age';
+  let age = 0;
+  try { age = +localStorage.getItem(AGE_KEY) || 0; } catch (e) { /* storage unavailable */ }
+  const isLittle = () => age > 0 && age <= 7;
+  // the little tray: the most familiar things in six tabs. Everything else stays in the town, just not in the tray
+  const LITTLE = [
+    { id: 'homes', ico: '🏠', label: 'Homes', items: ['house', 'cottage', 'castle'] },
+    { id: 'town', ico: '🏫', label: 'Town', items: ['school', 'hospital', 'fire', 'shop', 'zoo', 'farm'] },
+    { id: 'fun', ico: '🎡', label: 'Fun', items: ['playground', 'ferris', 'carousel', 'sandbox', 'sandcastle'] },
+    { id: 'nature', ico: '🌳', label: 'Nature', items: ['tree', 'appletree', 'flowers', 'pond', 'snowman'] },
+    { id: 'roads', ico: '🚗', label: 'Roads', extra: '& Cars', items: ['road', 'car', 'bus', 'icetruck'] },
+    { id: 'friends', ico: '🐶', label: 'Friends', items: ['kid', 'adult', 'dog', 'cat', 'cow', 'horse', 'ducks'] },
+  ];
+  const tabsNow = () => (isLittle() ? LITTLE.map(l => [l.id, l.ico, l.label, l.extra]) : CATS);
+  const itemsIn = c => (isLittle() ? LITTLE.find(l => l.id === c)?.items || [] : Object.keys(ITEMS).filter(id => ITEMS[id].cat === c));
+  const agePick = document.getElementById('agePick'), agesEl = document.getElementById('ages');
+  const ageBtn = document.getElementById('ageBtn'), ageX = document.getElementById('ageX');
+  const AGE_COLORS = ['#ff6f59', '#ff9f1c', '#f2c12e', '#2ec27e', '#2f9be0', '#6a5cff', '#d6409f'];
+  function applyAge() {
+    document.body.classList.toggle('little', isLittle());
+    ageBtn.textContent = age || '?';
+    ageBtn.setAttribute('aria-label', age ? `Age ${age}. Change age` : 'Pick your age');
+    if (!tabsNow().some(c => c[0] === cat)) cat = tabsNow()[0][0];
+    if (tool !== 'look' && tool !== 'erase' && !itemsIn(cat).includes(tool)) setTool('look');
+    renderTabs(); renderItems();
+  }
+  for (let n = 4; n <= 10; n++) {
+    const b = document.createElement('button');
+    b.className = 'age'; b.textContent = n; b.style.setProperty('--c', AGE_COLORS[n - 4]);
+    b.setAttribute('aria-label', `${n} years old`);
+    b.onclick = () => {
+      ensureAudio(); sfx.place(); buzz(12);
+      age = n;
+      try { localStorage.setItem(AGE_KEY, String(n)); } catch (e) { /* storage unavailable */ }
+      applyAge();
+      agePick.hidden = true;
+      say(`${n}! Let’s build!`);
+      toast(isLittle() ? '🧸 Little Builders: big buttons, easy building!' : '🚀 Big Builders: everything is ready!', 2400);
+    };
+    agesEl.appendChild(b);
+  }
+  function openAgePick(talk) {
+    agesEl.querySelectorAll('.age').forEach(b => b.setAttribute('aria-pressed', String(+b.textContent === age)));
+    ageX.hidden = !age;   // the very first time, an age has to be picked
+    agePick.hidden = false;
+    setMenu(false);
+    if (talk) say('How old are you?');
+  }
+  ageBtn.onclick = () => { ensureAudio(); openAgePick(true); };
+  ageX.onclick = () => { agePick.hidden = true; };
+  // Little Builders don't place zebra crossings: straight bits of road get one on their own, a few tiles apart
+  function autoCross() {
+    const roads = [...objs].filter(o => o.type === 'road'), crossings = roads.filter(o => o.cross);
+    let added = 0;
+    for (const o of roads) {
+      const { x, z } = o;
+      if (o.cross || isWater(x, z)) continue;
+      const ew = isRoad(x - 1, z) && isRoad(x + 1, z) && !isRoad(x, z - 1) && !isRoad(x, z + 1);
+      const ns = isRoad(x, z - 1) && isRoad(x, z + 1) && !isRoad(x - 1, z) && !isRoad(x + 1, z);
+      if (!ew && !ns) continue;
+      // somewhere to step on and off on both sides
+      const [a, b] = ew ? [[x, z - 1], [x, z + 1]] : [[x - 1, z], [x + 1, z]];
+      if (!walkable(...a) || !walkable(...b)) continue;
+      if (crossings.some(c => Math.abs(c.x - x) + Math.abs(c.z - z) < 5)) continue;
+      o.cross = true; refreshRoad(x, z); crossings.push(o); added++;
+    }
+    return added;
   }
 
   /* phones: ⋯ opens the extra camera and town buttons */
@@ -4602,7 +4765,7 @@
     if (tipsSeen[key]) return;
     tipsSeen[key] = 1;
     try { localStorage.setItem(TIPS_KEY, JSON.stringify(tipsSeen)); } catch (e) { /* storage unavailable */ }
-    setTimeout(() => toast('💡 ' + msg, 4500), delay);
+    setTimeout(() => { toast('💡 ' + msg, 4500); if (isLittle()) say(msg); }, delay);   // little ones may not read yet
   }
   // after drawing roads: if people can't get across, suggest a zebra crossing
   function roadTip() {
@@ -5334,6 +5497,7 @@
     cardTitle.textContent = title;
     cardSub.textContent = sub;
     cardMode(isMove ? 'move' : 'act');
+    if (trayOpen && !isMove && tool === 'look') setTray(false, true);   // make room for the card
     app.style.setProperty('--card-bottom', (trayEl.offsetHeight + 24) + 'px');
     cardEl.hidden = false;
   }
@@ -5354,6 +5518,7 @@
     show('cPaint', !!o.group.userData.paint); show('cGrow', HOMES.has(o.type)); show('cSwap', !!swapsOf(o.type));
     show('cFriend', false); show('cRide', false); show('cName', true);
     show('cMove', true); show('cTurn', true);
+    simpleCard();
     tipsSeen.card = 1;
     markSelected();
   }
@@ -5374,9 +5539,12 @@
     show('cPaint', false); show('cGrow', false); show('cSwap', false);
     show('cFriend', friendly(m)); show('cRide', !!it.vehicle); show('cName', !it.vehicle);
     show('cMove', false); show('cTurn', false);
+    simpleCard();
     btn('cRide').querySelector('.ico').nextSibling.textContent = follow === m ? 'Get off' : 'Ride';
     selHl.visible = true; selHl.scale.set(.7, .7, 1);
   }
+  // Little Builders get the big, simple buttons only: play, paint, grow, ride, move and remove
+  function simpleCard() { if (isLittle()) for (const id of ['cName', 'cSwap', 'cFriend', 'cTurn']) show(id, false); }
   function closeCard() {
     selected = null; selMover = null; befriend = null;
     cardEl.hidden = true;
@@ -5390,6 +5558,7 @@
     const o = selected; if (!o) return;
     paintRow.innerHTML = '';
     PAINTS.forEach((c, i) => {
+      if (isLittle() && i > 3) return;   // four bright colours are plenty
       const b = document.createElement('button');
       b.className = 'swatch'; b.title = c.n; b.setAttribute('aria-label', c.n);
       b.setAttribute('aria-pressed', String(o.paint === i));
@@ -5590,7 +5759,7 @@
       if (why === 'taken' && c) { squish(c.group); sfx.boing(); }
       else sfx.nope();
       buzz([20, 40, 20]);
-      toast(MSG[why]);
+      toast(MSG[isLittle() && why === 'pavement' ? 'walk' : why]);
       return;
     }
     buzz(12);
@@ -5721,7 +5890,7 @@
       drag = null; hover = null; positionGhost();
       return;
     }
-    if (drag.painting && tool === 'road') roadTip();
+    if (drag.painting && tool === 'road') { if (!isLittle()) roadTip(); else if (autoCross()) changed(); }
     if (e.type === 'pointerup' && !drag.moved && !drag.painting && drag.button === 0 && !drag.held) {
       const m = moverFromEvent(e);
       const v = m || moving ? null : vesselFromEvent(e);
@@ -5796,7 +5965,12 @@
     const k = e.key.toLowerCase();
     if ((e.ctrlKey || e.metaKey) && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); redo(); return; }
     if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); undo(); return; }
-    if (k === 'escape') { if (moving) cancelMove(); else if (selected) closeCard(); else if (tool !== 'look') setTool('look'); setMenu(false); }
+    if (k === 'escape') {
+      if (!agePick.hidden) { if (age) agePick.hidden = true; }
+      else if (moving) cancelMove(); else if (selected) closeCard(); else if (tool !== 'look') setTool('look'); else if (trayOpen) setTray(false);
+      setMenu(false);
+    }
+    else if (k === 'b') setTray(!trayOpen);
     else if (k === 'r') turn();
     else if (k === 'q') spin(-1);
     else if (k === 'e') spin(1);
@@ -6147,7 +6321,8 @@
     if (data && data.size !== N) data = migrateV1(data);
     resize();
     cam.dist = cam.distT = fitDistance();
-    renderTabs(); renderItems();
+    applyAge();
+    if (!age) openAgePick();
     loadTown(data || starterTown(), false);
     setTool('look');
     window.claude?.hot?.snapshot?.(() => ({ town: serialize() }));
