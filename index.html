@@ -1976,6 +1976,26 @@
     return g;
   }
 
+  // a stripy play ball: kids come and kick it to each other (see ballScene)
+  function makeBall(r) {
+    const g = new THREE.Group(), R = .1;
+    const kick = new THREE.Group(); g.add(kick);
+    const cols = ['#e63946', '#ffffff', '#ffbe0b', '#ffffff', '#3a86ff', '#ffffff'], turn = r() * 6;
+    cols.forEach((c, i) => kick.add(new THREE.Mesh(new THREE.SphereGeometry(R, 4, 10, turn + i * Math.PI / 3, Math.PI / 3), soft(c))));
+    for (const y of [-1, 1]) ball(kick, .022, soft('#ffffff'), 0, y * (R - .012), 0, 1);
+    kick.traverse(m => { if (m.isMesh) m.castShadow = true; });
+    kick.position.y = R + .005;
+    kick.userData.rest = kick.position.clone();
+    g.userData.kick = kick;
+    g.userData.tick = dt => {
+      const d = kick.userData;
+      if (!(d.hop > 0)) return;
+      d.hop = Math.max(0, d.hop - dt * 1.8);
+      kick.position.y = d.rest.y + Math.abs(Math.sin(d.hop * Math.PI * 2)) * .3 * d.hop;
+    };
+    return g;
+  }
+
   /* nature */
   function makeAppleTree(r) {
     const g = makeTree(r);
@@ -2025,24 +2045,29 @@
     cone(g, .06, .06, '#c98a4b', .4, .43, .4, 8);
     return g;
   }
+  // one little butterfly, with wings that flap
+  function makeFly(r) {
+    const b = new THREE.Group();
+    const c = pick(r, ['#ffbe0b', '#3a86ff', '#ff5d8f', '#8a5cd6', '#ff8a3d']);
+    box(b, .012, .012, .06, '#2b2b33', 0, 0, 0);
+    const wings = [-1, 1].map(sd => { const w = new THREE.Group(); b.add(w); box(w, .06, .004, .06, c, sd * .032, 0, .005); box(w, .04, .004, .04, mixHex(c, '#ffffff', .3), sd * .028, 0, -.035); return w; });
+    wings.forEach(w => bake(w));
+    b.userData = { wings, a: r() * 6.28, s: .8 + r() * .6, h: .2 + r() * .15, rr: .18 + r() * .14 };
+    return b;
+  }
   function makeButterflies(r) {
     const g = makeFlowers(r);
     const flies = [];
-    for (let i = 0; i < 3; i++) {
-      const b = new THREE.Group(); g.add(b);
-      const c = pick(r, ['#ffbe0b', '#3a86ff', '#ff5d8f', '#8a5cd6', '#ff8a3d']);
-      box(b, .012, .012, .06, '#2b2b33', 0, 0, 0);
-      const wings = [-1, 1].map(sd => { const w = new THREE.Group(); b.add(w); box(w, .06, .004, .06, c, sd * .032, 0, .005); box(w, .04, .004, .04, mixHex(c, '#ffffff', .3), sd * .028, 0, -.035); return w; });
-      wings.forEach(w => bake(w));
-      b.userData = { wings, a: r() * 6.28, s: .8 + r() * .6, h: .2 + r() * .15, rr: .18 + r() * .14 };
-      flies.push(b);
-    }
+    for (let i = 0; i < 3; i++) { const b = makeFly(r); g.add(b); flies.push(b); }
     keepParts(g, ...flies);
+    g.userData.flies = flies;
     g.userData.tick = (dt, t) => {
       const fast = 1 + (g.userData.excite || 0) * 3;
       g.userData.excite = Math.max(0, (g.userData.excite || 0) - dt * .4);
       for (const b of flies) {
-        const u = b.userData; u.a += dt * u.s * fast;
+        const u = b.userData;
+        if (u.away) continue;   // off visiting some flowers (see flutterScene)
+        u.a += dt * u.s * fast;
         b.position.set(Math.cos(u.a) * u.rr, u.h + Math.sin(t * 3 + u.a) * .05 + (g.userData.excite || 0) * .3, Math.sin(u.a * 1.3) * u.rr);
         b.rotation.y = -u.a;
         const f = Math.sin(t * 22 + u.a) * .9;
@@ -2576,6 +2601,7 @@
     treehouse: { label: 'Treehouse', icon: '🏕️', cat: 'fun', kind: 'build', make: makeTreehouse },
     sandbox:  { label: 'Sandpit', icon: '🪣', cat: 'fun', kind: 'build', make: makeSandbox },
     pitch:    { label: 'Football', icon: '⚽', cat: 'fun', kind: 'build', size: [3, 2], make: makePitch },
+    ball:     { label: 'Ball', icon: '🏐', cat: 'fun', kind: 'build', make: makeBall, walk: true },
     appletree: { label: 'Apple Tree', icon: '🍎', cat: 'nature', kind: 'build', make: makeAppleTree },
     veggies:  { label: 'Veggie Patch', icon: '🥕', cat: 'nature', kind: 'build', make: makeVeggies },
     butterflies: { label: 'Butterflies', icon: '🦋', cat: 'nature', kind: 'build', make: makeButterflies, walk: true },
@@ -2644,6 +2670,7 @@
     treehouse: 'A secret clubhouse up in a tree.',
     sandbox: 'Dig, scoop and build castles in the sand.',
     pitch: 'Two teams try to kick the ball into the goal.',
+    ball: 'Kick it, roll it, pass it to a friend!',
     appletree: 'Apples grow on trees. Tap it and one might fall!',
     veggies: 'Carrots, pumpkins and cabbages grow in the soil. Tap to help them grow!',
     butterflies: 'Butterflies drink sweet nectar from flowers.',
@@ -2670,7 +2697,7 @@
   };
   const TOPS = { house: .9, cottage: .9, flats: 1.8, castle: 1.9, school: 1.3, hospital: 1.2, fire: 1.2, shop: .8, tree: 1.05, pine: 1.05, palm: 1.1, flowers: .35, pond: .35, lamp: .95, fountain: .8, bench: .45,
     bakery: .95, cafe: 1, library: 1, post: .8, policestation: .95, station: .9, zoo: 1, farm: 1.2, playground: .8, ferris: 2, carousel: 1.15, treehouse: 1.5,
-    sandbox: .45, pitch: .5, appletree: 1.05, veggies: .5, butterflies: .6, sunflowers: .95, mushrooms: .35, boulder: .6, snowman: 1.05, lighthouse: 2.1,
+    sandbox: .45, pitch: .5, ball: .4, appletree: 1.05, veggies: .5, butterflies: .6, sunflowers: .95, mushrooms: .35, boulder: .6, snowman: 1.05, lighthouse: 2.1,
     umbrella: .85, sandcastle: .8, beachhut: .95, lifeguard: 1.35, icestand: 1.1, trafficlight: 1.2, busstop: .9, statue: 1.15, flagpole: 1.5, mailbox: .65,
     picnic: .55, hedge: .5, fence: .4, pots: .5, bins: .55 };
   const CATS = [
@@ -3770,7 +3797,7 @@
   const WISHES = {
     kid: { pic: '🛝', places: ['playground', 'sandbox', 'carousel', 'ferris', 'treehouse'] },
     adult: { pic: '🍦', places: ['icestand', 'cafe', 'bakery'] },
-    dog: { pic: '🎾', places: ['pitch', 'playground', 'sandbox'] },
+    dog: { pic: '🎾', places: ['ball', 'pitch', 'playground', 'sandbox'] },
   };
   const WISH_MAX = 2, WISH_SHOW = 9, WISH_RANGE = 14;
   const wishes = [];
@@ -3793,7 +3820,7 @@
     return BUBBLE_TEX[pic];
   }
   const wishOf = m => wishes.find(w => w.m === m);
-  const canWish = m => WISHES[m.type] && movers.includes(m) && m.g.visible && !m.carried && !m.trick && !m.temp && !wishOf(m)
+  const canWish = m => WISHES[m.type] && movers.includes(m) && m.g.visible && !m.carried && !m.trick && !m.temp && !m.scene && !wishOf(m)
     && (m.it.person ? m.state === 'out' && !m.goingHome && !m.errand && !m.path && !m.visiting : !m.path);
   // the nearest place that matches, that they can actually get to
   function wishPlace(m, w, only) {
@@ -3888,6 +3915,332 @@
     for (const w of wishes) { scene.remove(w.s); w.s.material.dispose(); }
     wishes.length = 0;
   }
+
+  /* ---------- little chain reactions: one thing leads to another ---------- */
+  // each scene is a tiny script: a step, the people and things taking part, and a timer. Before every step
+  // everything is checked again; if anyone or anything has gone, the scene stops and everyone carries on as usual
+  const scenes = [];
+  const tA = new THREE.Vector3(), tB = new THREE.Vector3(), tC = new THREE.Vector3();
+  const SCENE_REST = { leaves: 45, ball: 40, flutter: 35 };   // seconds before the same kind can happen again
+  const sceneAfter = { leaves: 0, ball: 0, flutter: 0 };
+  let sceneClock = 0, sceneTry = 12 + Math.random() * 10;
+  const tileGap = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
+  // someone outside, not busy with anything else (a wish always comes first)
+  const sceneFree = m => movers.includes(m) && m.g.visible && !m.carried && !m.trick && !m.temp && !m.scene && !wishOf(m) && !m.path
+    && (!m.it.person || (m.state === 'out' && !m.goingHome && !m.errand && !m.visiting));
+  function nearest(types, at, range, but) {
+    let best = null, bd = Infinity;
+    for (const m of movers) {
+      if (!types.includes(m.type) || m === but || !sceneFree(m)) continue;
+      const d = tileGap(moverTile(m), at);
+      if (d <= range && d < bd) { best = m; bd = d; }
+    }
+    return best;
+  }
+  function claim(s, m) { m.scene = s; m.path = []; m.wait = 0; s.who.push(m); }   // an empty path keeps them where they are
+  function letGo(m) { m.scene = null; m.path = null; m.sweep = 0; m.faceTo = null; }
+  // done with their part: back to their own day while the rest of the scene finishes
+  function release(s, m) { if (m.scene === s) letGo(m); s.who = s.who.filter(q => q !== m); }
+  // walk to a tile; 'there', 'walk' or 'stuck' (no way through, even after one more try)
+  function walkTo(m, t) {
+    m.faceTo = null;
+    const at = moverTile(m);
+    if (at.x === t.x && at.z === t.z && m.t >= 1) return 'there';
+    if (m.path && m.path.length) return 'walk';
+    if (m.path && !m.path.length && m.goal === t && m.t < 1) return 'walk';
+    if (m.goal === t && m.tries > 1) return 'stuck';
+    m.tries = m.goal === t ? (m.tries || 0) + 1 : 1; m.goal = t;
+    const p = findPath(m.to, t);
+    if (!p || p.length > 14) return 'stuck';
+    m.path = p; m.wait = 0;
+    return 'walk';
+  }
+  const stayPut = (m, look) => { m.path = []; if (look) m.faceTo = look; };
+  // a free walkable tile next to a tile, not one already taken by someone in the scene
+  function besideTile(t, taken = []) {
+    const opts = DIRS.map(([dx, dz]) => ({ x: t.x + dx, z: t.z + dz })).filter(p => walkable(p.x, p.z) && !taken.some(q => q && q.x === p.x && q.z === p.z));
+    return opts.length ? pick(Math.random, opts) : null;
+  }
+  function endScene(s) {
+    const i = scenes.indexOf(s);
+    if (i < 0) return;
+    scenes.splice(i, 1);
+    for (const m of s.who) if (m.scene === s) letGo(m);
+    if (s.done) s.done();
+    sceneAfter[s.kind] = sceneClock + SCENE_REST[s.kind] * (.8 + Math.random() * .4);
+  }
+  const running = kind => scenes.some(s => s.kind === kind);
+  const alive = s => s.who.every(m => movers.includes(m) && m.g.visible && !m.carried && m.scene === s) && s.objs.every(o => objs.has(o));
+
+  // --- A: leaves fall, someone sweeps them into a pile, and a dog jumps in it
+  const LEAF_GEO = new THREE.PlaneGeometry(.11, .075);
+  const LEAF_MATS = ['#e8a93a', '#d9652b', '#9cc43c', '#c9442c'].map(c => new THREE.MeshStandardMaterial({ color: c, roughness: .8, side: THREE.DoubleSide }));
+  function leavesScene(tree, quiet) {
+    if (running('leaves') || night || !objs.has(tree)) return false;
+    const pileT = nearTile(tree, walkable, false);
+    if (!pileT) return false;
+    const sweeper = nearest(['kid', 'adult'], pileT, 6), dog = nearest(['dog'], pileT, 8);
+    if (quiet && (!sweeper || !dog)) return false;   // on its own, the game only starts the whole story
+    const pile = tileWorld(pileT.x, pileT.z);
+    const top = tree.group.position;
+    const leaves = [];
+    for (let i = 0; i < 14; i++) {
+      const l = new THREE.Mesh(LEAF_GEO, LEAF_MATS[i % LEAF_MATS.length]);
+      const a = Math.random() * 6.28, r = Math.random() * .3;
+      l.position.set(top.x + Math.cos(a) * r, .7 + Math.random() * .3, top.z + Math.sin(a) * r);
+      const ga = Math.random() * 6.28, gr = .12 + Math.random() * .3;
+      l.userData = { from: l.position.clone(), to: new THREE.Vector3(pile.x + Math.cos(ga) * gr, .012 + i * .002, pile.z + Math.sin(ga) * gr), delay: Math.random() * .9, spin: Math.random() * 6, v: new THREE.Vector3() };
+      scene.add(l); leaves.push(l);
+    }
+    const s = { kind: 'leaves', step: 'fall', t: 0, who: [], objs: [tree], leaves, pile, pileT };
+    if (sweeper && dog) { claim(s, sweeper); claim(s, dog); s.sweeper = sweeper; s.dog = dog; }
+    s.done = () => { for (const l of leaves) scene.remove(l); };
+    scenes.push(s);
+    return true;
+  }
+  function stepLeaves(s, dt) {
+    const { leaves, pile } = s;
+    if (s.step === 'fall') {
+      // drifting down, swaying side to side
+      let landed = 0;
+      for (const l of leaves) {
+        const u = l.userData, k = clamp((s.t - u.delay) / 1.3, 0, 1);
+        if (k >= 1) landed++;
+        l.position.lerpVectors(u.from, u.to, k);
+        l.position.x += Math.sin(k * 9 + u.spin) * .12 * (1 - k);
+        l.rotation.set(k < 1 ? Math.sin(s.t * 5 + u.spin) * .8 : -Math.PI / 2, u.spin + s.t * (1 - k), 0);
+      }
+      if (s.t === dt) sfx.rustle();
+      if (s.sweeper && s.t > .8 && !s.spot) { s.spot = besideTile(s.pileT); if (s.spot) walkTo(s.sweeper, s.spot); }   // they notice straight away
+      if (landed === leaves.length) { s.step = s.sweeper ? 'walk' : 'rest'; s.t = 0; }
+      return;
+    }
+    if (s.step === 'rest') { if (s.t > 4) { s.step = 'fade'; s.t = 0; } return; }
+    if (s.step === 'walk') {
+      stayPut(s.dog, pile);
+      s.spot = s.spot || besideTile(s.pileT);
+      const r = s.spot ? walkTo(s.sweeper, s.spot) : 'stuck';
+      if (r === 'stuck' || s.t > 12) return endScene(s);
+      if (r === 'there') { s.step = 'sweep'; s.t = 0; stayPut(s.sweeper, pile); s.sweeper.sweep = 1; }
+      return;
+    }
+    if (s.step === 'sweep') {
+      // swish, swish: the leaves gather into a little heap
+      const k = Math.min(1, s.t / 2.2);
+      leaves.forEach((l, i) => {
+        const u = l.userData, a = i * 2.4, r = .05 + (i % 3) * .045, h = .012 + (i % 4) * .022 * k;
+        l.position.lerp(tA.set(pile.x + Math.cos(a) * r, h, pile.z + Math.sin(a) * r), Math.min(1, dt * 2.5 * k + .002));
+        u.v.set(0, 0, 0);
+      });
+      if ((s.swish = (s.swish || 0) - dt) <= 0) { s.swish = .5; sfx.swish(); }
+      if (s.t > 1.2) walkTo(s.dog, s.pileT);   // the dog has spotted the pile…
+      else stayPut(s.dog, pile);
+      if (k >= 1) { s.sweeper.sweep = 0; s.step = 'dog'; s.t = 0; }
+      return;
+    }
+    if (s.step === 'dog') {
+      stayPut(s.sweeper, s.dog.pos);
+      const r = walkTo(s.dog, s.pileT);
+      if (r === 'stuck' || s.t > 12) { s.step = 'fade'; s.t = 0; return; }
+      if (r === 'there') {
+        // boing! into the pile, and the leaves fly everywhere
+        s.dog.jump = 1; sfx.woof(); s.sweeper.waveT = 1.6;
+        for (const l of leaves) { const a = Math.random() * 6.28; l.userData.v.set(Math.cos(a) * (.6 + Math.random() * .6), 1.4 + Math.random(), Math.sin(a) * (.6 + Math.random() * .6)); }
+        s.step = 'scatter'; s.t = 0; stayPut(s.dog);
+      }
+      return;
+    }
+    if (s.step === 'scatter') {
+      for (const l of leaves) {
+        const v = l.userData.v;
+        v.y -= dt * 3; l.position.addScaledVector(v, dt);
+        if (l.position.y < .012) { l.position.y = .012; v.set(v.x * .5, 0, v.z * .5); }
+        l.rotation.x += dt * 6; l.rotation.y += dt * 4;
+      }
+      if (s.t > 1.6) { for (const m of [...s.who]) release(s, m); s.step = 'fade'; s.t = 0; }
+      return;
+    }
+    if (s.step === 'fade') {
+      const k = Math.min(1, s.t / 1.2);
+      for (const l of leaves) l.scale.setScalar(1 - k);
+      if (k >= 1) endScene(s);
+    }
+  }
+
+  // --- B: a ball gets passed between two kids (or one kid chases it and brings it back)
+  // the ball rolls along the same tiles people walk on, so it never goes through buildings or water
+  function ballScene(o) {
+    if (running('ball') || night || !objs.has(o)) return false;
+    const home = { x: o.x, z: o.z };
+    const a = nearest(['kid'], home, 6);
+    if (!a) return false;
+    const b = nearest(['kid'], home, 8, a);
+    const s = { kind: 'ball', step: 'walk', t: 0, who: [], objs: [o], o, home, a, b };
+    claim(s, a);
+    if (b) { claim(s, b); s.bSpot = moverTile(b); }
+    s.done = () => { const k = o.group.userData.kick; if (k) { k.position.copy(k.userData.rest); k.rotation.set(0, 0, 0); } };
+    scenes.push(s);
+    return true;
+  }
+  // roll the ball along a list of tiles; true when it gets to the end
+  function rollBall(s, dt) {
+    const k = s.o.group.userData.kick, r = s.roll;
+    r.t += dt * 3.2;
+    const i = Math.min(Math.floor(r.t), r.pts.length - 2), f = Math.min(1, r.t - i);
+    tA.lerpVectors(r.pts[i], r.pts[i + 1], f);
+    const d = tA.distanceTo(r.last); r.last.copy(tA);
+    s.o.group.worldToLocal(tB.copy(tA).setY(k.userData.rest.y));
+    k.position.copy(tB);
+    k.rotation.x += d / .1;
+    return r.t >= r.pts.length - 1;
+  }
+  function startRoll(s, tiles, short) {
+    const k = s.o.group.userData.kick;
+    const pts = tiles.map(t => tileWorld(t.x, t.z));
+    pts.unshift(k.getWorldPosition(new THREE.Vector3()).setY(0));
+    if (short) pts[pts.length - 1].lerp(pts[pts.length - 2], .45);   // stops just in front of the kid, not under their feet
+    s.roll = { pts, t: 0, last: pts[0].clone() };
+    sfx.kick();
+  }
+  function stepBall(s, dt) {
+    const { o, a, b, home } = s, ballAt = () => s.o.group.userData.kick.getWorldPosition(tA.clone());
+    if (s.step === 'walk') {
+      if (b) stayPut(b, ballAt());
+      s.spot = s.spot || besideTile(home, [s.bSpot]);
+      const r = s.spot ? walkTo(a, s.spot) : 'stuck';
+      if (r === 'stuck' || s.t > 12) return endScene(s);
+      if (r === 'there') { stayPut(a, ballAt()); s.step = 'aim'; s.t = 0; }
+      return;
+    }
+    if (s.step === 'aim' && s.t > .5) {
+      // pass to the other kid, or kick it a little way and run after it
+      let to = b ? s.bSpot : null, path = to && findPath(home, to);
+      if (!path || path.length > 8 || !path.length) {
+        to = null;
+        const opts = [];
+        for (let dz = -3; dz <= 3; dz++) for (let dx = -3; dx <= 3; dx++) { const t = { x: home.x + dx, z: home.z + dz }; const d = Math.abs(dx) + Math.abs(dz); if (d >= 2 && d <= 3 && walkable(t.x, t.z)) opts.push(t); }
+        for (const t of opts.sort(() => Math.random() - .5)) { const p = findPath(home, t); if (p && p.length <= 4) { to = t; path = p; break; } }
+        if (!to) return endScene(s);
+        s.solo = true; if (b) release(s, b);
+      }
+      s.out = path; a.jump = 1; startRoll(s, path, true); s.step = 'roll'; s.t = 0;
+      return;
+    }
+    if (s.step === 'roll') {
+      if (!s.solo) stayPut(b, ballAt());
+      else { const r = walkTo(a, s.out[s.out.length - 1]); if (r === 'stuck') return endScene(s); }
+      if (rollBall(s, dt)) { s.step = s.solo ? 'chase' : 'catch'; s.t = 0; if (!s.solo) { b.jump = 1; b.waveT = 1; sfx.boing(); } }
+      return;
+    }
+    if (s.step === 'chase') {
+      const r = walkTo(a, s.out[s.out.length - 1]);
+      if (r === 'stuck' || s.t > 10) return endScene(s);
+      if (r === 'there') { s.step = 'catch'; s.t = 0; a.jump = 1; }
+      return;
+    }
+    if (s.step === 'catch') {
+      if (s.t < .8) return;
+      // and back it goes, home to where it lives
+      const back = s.out.slice(0, -1).reverse().concat([home]);
+      startRoll(s, back); s.step = 'back'; s.t = 0;
+      return;
+    }
+    if (s.step === 'back') {
+      stayPut(a, ballAt());
+      if (rollBall(s, dt)) { a.jump = 1; if (b && !s.solo) b.waveT = 1.2; s.step = 'rest'; s.t = 0; }
+      return;
+    }
+    if (s.step === 'rest' && s.t > 1) endScene(s);
+  }
+
+  // --- C: a butterfly visits the flowers, and someone stops to watch
+  const FLOWERS = new Set(['flowers', 'sunflowers', 'butterflies']);
+  function flutterScene(f, quiet) {
+    if (running('flutter') || night || !objs.has(f)) return false;
+    let other = null, home = null, bd = Infinity;
+    for (const o of objs) {
+      if (o === f) continue;
+      const d = tileGap(o, f);
+      if (FLOWERS.has(o.type) && d <= 3 && (!other || Math.random() < .5)) other = o;
+      if (o.type === 'butterflies' && d <= 5 && d < bd) { home = o; bd = d; }
+    }
+    if (f.type === 'butterflies') home = f;
+    if (!other && quiet) return false;
+    const s = { kind: 'flutter', step: 'come', t: 0, who: [], objs: [f, ...(other ? [other] : [])], f, other, flies: [] };
+    // borrow one of the butterflies that live nearby, or a visitor comes from far away (at most two at a time)
+    const borrowed = home && home.group.userData.flies && home.group.userData.flies.find(b => !b.userData.away);
+    if (borrowed) {
+      borrowed.userData.away = true;
+      s.flies.push({ b: borrowed, own: home, p: borrowed.getWorldPosition(new THREE.Vector3()), ph: 0 });
+      s.objs.push(home);
+    } else {
+      for (let i = 0; i < 2; i++) {
+        const b = makeFly(rngSeed(newSeed())); b.scale.setScalar(0); scene.add(b);
+        const p = f.group.position.clone().add(tA.set((Math.random() - .5) * 3, 1.2, (Math.random() - .5) * 3));
+        s.flies.push({ b, p, ph: i * 2.1 });
+      }
+    }
+    const watcher = nearest(['kid', 'adult'], f, 4);
+    if (watcher) { claim(s, watcher); s.watcher = watcher; }
+    s.done = () => { for (const fl of s.flies) { if (fl.own) { fl.b.userData.away = false; } else scene.remove(fl.b); } };
+    scenes.push(s);
+    return true;
+  }
+  function stepFlutter(s, dt, time) {
+    // where they're heading: the flowers, the other flowers, the flowers again, then home
+    const stops = [s.f, s.other || s.f, s.f];
+    const legs = 1.8, k = s.t / legs, leg = Math.floor(k);
+    for (const fl of s.flies) {
+      let target;
+      if (leg < stops.length) {
+        const c = stops[leg].group.position, a = time * 2.4 + fl.ph;
+        target = tA.set(c.x + Math.cos(a) * .25, .32 + Math.sin(time * 3 + fl.ph) * .06, c.z + Math.sin(a * 1.3) * .25);
+      } else if (fl.own) target = fl.own.group.position.clone().setY(.3);
+      else target = tA.set(fl.p.x, 1.6, fl.p.z);
+      fl.p.lerp(target, Math.min(1, dt * 2.2));
+      const b = fl.b;
+      if (fl.own) b.position.copy(fl.own.group.worldToLocal(tB.copy(fl.p)));
+      else { b.position.copy(fl.p); b.scale.setScalar(1.6 * clamp(Math.min(s.t, legs * 4.6 - s.t) / .6, 0, 1)); }   // visitors are a little bigger, so you spot them
+      b.rotation.y = -time * 2;
+      const w = b.userData.wings, fw = Math.sin(time * 22 + fl.ph) * .9;
+      w[0].rotation.z = fw; w[1].rotation.z = -fw;
+    }
+    if (s.watcher) {
+      stayPut(s.watcher, s.flies[0].b.getWorldPosition(tC));
+      if (leg === 1 && !s.waved) { s.waved = true; s.watcher.waveT = 1.4; s.watcher.faceCam = false; sfx.sparkle(); }
+      if (leg >= 3) { release(s, s.watcher); s.watcher = null; }
+    }
+    if (s.t > legs * 4.6) endScene(s);
+  }
+
+  function stepScenes(dt, time) {
+    sceneClock += dt;
+    for (const s of [...scenes]) {
+      if (night || !alive(s)) { endScene(s); continue; }
+      s.t += dt;
+      if (s.kind === 'leaves') stepLeaves(s, dt);
+      else if (s.kind === 'ball') stepBall(s, dt);
+      else stepFlutter(s, dt, time);
+    }
+    // now and then, somewhere in town, something little happens on its own
+    if (night || (sceneTry -= dt) > 0) return;
+    sceneTry = 20 + Math.random() * 20;
+    const kinds = ['leaves', 'ball', 'flutter'].filter(k => sceneClock >= sceneAfter[k] && !running(k)).sort(() => Math.random() - .5);
+    const list = t => [...objs].filter(o => t.includes(o.type)).sort(() => Math.random() - .5).slice(0, 6);
+    for (const k of kinds) {
+      if (k === 'leaves' && list(['tree', 'appletree']).some(o => leavesScene(o, true))) return;
+      if (k === 'ball' && list(['ball']).some(o => ballScene(o))) return;
+      if (k === 'flutter' && list(['flowers', 'sunflowers']).some(o => flutterScene(o, true))) return;
+    }
+  }
+  // tapping or building something can start its little story straight away (if that one isn't already going)
+  function sceneFor(o) {
+    if (o.type === 'tree' || o.type === 'appletree') return leavesScene(o, false);
+    if (o.type === 'ball') return ballScene(o);
+    if (FLOWERS.has(o.type)) return flutterScene(o, true);
+    return false;
+  }
+  function clearScenes() { for (const s of [...scenes]) endScene(s); }
   const flyGeo = new THREE.BufferGeometry();
   const fp = [];
   for (let i = 0; i < 90; i++) {
@@ -4435,6 +4788,9 @@
     // fireworks: a rising whistle, then a soft pop with a crackle
     whoosh: () => { cry({ f: [[0, 700], [.6, 1500]], dur: .6, type: 'sine', filter: 'highpass', q: [[0, 500]], Q: 1, vol: .025, attack: .1 }); noise(.5, .04, 'bandpass', 2500); },
     pop: () => { noise(.35, .16, 'lowpass', 600); for (let i = 0; i < 5; i++) noise(.03, .05, 'highpass', 4000, .15 + Math.random() * .4); },
+    // leaves: a soft rustle as they fall, and a swish of the broom
+    rustle: () => { for (let i = 0; i < 3; i++) noise(.25, .03, 'highpass', 3000 + i * 500, i * .2); },
+    swish: () => noise(.22, .035, 'bandpass', 2200),
     // cat purring: breathing out, then in, with the 25-a-second rumble
     purr: () => { noise(.65, .3, 'lowpass', 380, 0, 26); noise(.55, .2, 'lowpass', 300, .7, 24); },
     place: () => { tone(330, 660, .12); tone(660, 990, .1, 'sine', .1, .08); },
@@ -4636,7 +4992,7 @@
   const LITTLE = [
     { id: 'homes', ico: '🏠', label: 'Homes', items: ['house', 'cottage', 'castle'] },
     { id: 'town', ico: '🏫', label: 'Town', items: ['school', 'hospital', 'fire', 'shop', 'zoo', 'farm'] },
-    { id: 'fun', ico: '🎡', label: 'Fun', items: ['playground', 'ferris', 'carousel', 'sandbox', 'sandcastle'] },
+    { id: 'fun', ico: '🎡', label: 'Fun', items: ['playground', 'ferris', 'carousel', 'sandbox', 'sandcastle', 'ball'] },
     { id: 'nature', ico: '🌳', label: 'Nature', items: ['tree', 'appletree', 'flowers', 'pond', 'snowman'] },
     { id: 'roads', ico: '🚗', label: 'Roads', extra: '& Cars', items: ['road', 'car', 'bus', 'icetruck'] },
     { id: 'friends', ico: '🐶', label: 'Friends', items: ['kid', 'adult', 'dog', 'cat', 'cow', 'horse', 'ducks'] },
@@ -4822,6 +5178,7 @@
     cells.fill(null);
     surprisesDirty = true;
     clearWishes();
+    clearScenes();
     for (const m of movers) scene.remove(m.g);
     movers.length = 0;
   }
@@ -5718,7 +6075,7 @@
       return false;
     }
     // in the daytime, now and then, set off somewhere
-    if (!night && !m.temp && !m.trick) {
+    if (!night && !m.temp && !m.trick && !m.scene) {
       if (m.errand && m.path && !m.path.length && m.t >= 1) { arrive(m); return m.state === 'enter'; }
       if (!m.path && (m.errandT = (m.errandT ?? 5 + Math.random() * 20) - dt) <= 0) { m.errandT = 15 + Math.random() * 25; startErrand(m); }
     }
@@ -5740,6 +6097,7 @@
     m.blink -= dt;
     if (m.blink < 0) m.blink = 2 + Math.random() * 3;
     u.eyes.scale.y = m.blink < .12 ? .15 : 1;
+    if (m.sweep) { const s = Math.sin(time * 9) * .35; u.arms[0].rotation.x = -.9 + s; u.arms[1].rotation.x = -.9 - s; u.arms[1].rotation.z = .15; u.head.rotation.y = 0; }   // swish, swish
   }
   function greeting(m) {
     const h = m.home;
@@ -5786,6 +6144,7 @@
         break;
       case 'tree':
         sfx.tweet(); shake(g); floatEmoji(pick(Math.random, ['🍎', '🐦', '🍃', '🐛']), top);
+        sceneFor(o);   // some leaves fall… and maybe someone sweeps them up
         break;
       case 'pine':
         sfx.tweet(); shake(g); floatEmoji(pick(Math.random, ['🐿️', '🦉', '🌰']), top);
@@ -5795,6 +6154,7 @@
         break;
       case 'flowers':
         sfx.sparkle(); floatEmoji('🦋', top); floatEmoji('🐝', top);
+        sceneFor(o);
         break;
       case 'pond':
         sfx.quack(); floatEmoji('💦', top, 2);
@@ -5860,10 +6220,12 @@
         setTimeout(() => { sfx.fanfare(); floatEmoji('⚽', top); floatEmoji('🎉', top, 2); toast('GOAL! ⚽🎉', 1600); say('Goal!'); }, 1100);
       }
     },
+    ball: (o, g, top) => { sfx.boing(); g.userData.kick.userData.hop = 1; if (!sceneFor(o)) floatEmoji('⭐', top); },
     appletree: (o, g, top) => {
       const a = g.userData.apple;
       shake(g); sfx.tweet();
       if (a && !(a.userData.k > 0)) { a.userData.k = 1; setTimeout(() => { sfx.boing(); floatEmoji('🍎', topOf(o).setY(.4)); }, 550); toast('Bonk! An apple fell down! 🍎', 1600); }
+      sceneFor(o);
     },
     veggies: (o, g, top) => {
       const c = g.userData.crops, d = c.userData;
@@ -5877,7 +6239,7 @@
       }
     },
     butterflies: (o, g, top) => { sfx.sparkle(); g.userData.excite = 1; floatEmoji('🦋', top, 2); },
-    sunflowers: (o, g, top) => { sfx.sparkle(); shake(g); floatEmoji(pick(Math.random, ['🌻', '🐝', '☀️']), top, 2); },
+    sunflowers: (o, g, top) => { sfx.sparkle(); shake(g); floatEmoji(pick(Math.random, ['🌻', '🐝', '☀️']), top, 2); sceneFor(o); },
     mushrooms: (o, g, top) => { sfx.boing(); squish(g); floatEmoji(pick(Math.random, ['🐸', '🐌', '🧚', '🐛']), top); },
     boulder: (o, g, top) => { sfx.knock(); squish(g); floatEmoji(pick(Math.random, ['🐞', '🦎', '🐜', '🪲']), top); },
     snowman: (o, g, top) => { sfx.boing(); squish(g); floatEmoji('❄️', top, 3); toast('Brrr! Who wants a warm hug? ⛄', 1600); },
@@ -6209,6 +6571,7 @@
       ghostSeed = newSeed(); rebuildGhost(); sfx.place();
       if (o) { say(`You built ${phraseOf(o.type, o.group)}!`); moveIn(o, true); wishBuilt(o); }
       if (o && o.type === 'lamp') setTimeout(() => { if (objs.has(o)) twinkle(o, 3); }, 500);
+      if (o && (o.type === 'ball' || FLOWERS.has(o.type))) setTimeout(() => { if (objs.has(o)) sceneFor(o); }, 1500);
       if (o && HOMES.has(o.type)) tip('home', 'Tap your new home to meet who lives there. You can paint it too! 🎨');
     } else if (it.kind === 'road') {
       placeObj('road', tx, tz, 0, 0); sfx.road();
@@ -6541,7 +6904,8 @@
         tmpP.x += -dz * off; tmpP.z += dx * off;
       }
     } else moving = false;
-    const want = m.waveT > 0 && m.faceCam ? Math.atan2(camera.position.x - m.pos.x, camera.position.z - m.pos.z) : (dx || dz) ? Math.atan2(dx, dz) : m.yaw;
+    const want = m.waveT > 0 && m.faceCam ? Math.atan2(camera.position.x - m.pos.x, camera.position.z - m.pos.z)
+      : m.faceTo ? Math.atan2(m.faceTo.x - m.pos.x, m.faceTo.z - m.pos.z) : (dx || dz) ? Math.atan2(dx, dz) : m.yaw;   // faceTo: watching something in a little scene
     let turnBy = want - m.yaw; turnBy = Math.atan2(Math.sin(turnBy), Math.cos(turnBy));
     m.yaw += turnBy * Math.min(1, dt * 9);
     m.pos.lerp(tmpP, Math.min(1, dt * 10));
@@ -6690,6 +7054,7 @@
     stepBeach(dt, time);
     stepSurprises(dt, time);
     stepWishes(dt);
+    stepScenes(dt, time);
     for (const b of birds) {
       const u = b.userData;
       u.a += u.s * dt; u.t += dt;
