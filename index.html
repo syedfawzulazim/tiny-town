@@ -4160,7 +4160,8 @@
     if (m.path) {
       const p = m.path[0];
       if (!p) return null;
-      if (!stepOk(m.to, p) || Math.abs(p.x - m.to.x) + Math.abs(p.z - m.to.z) !== 1) { m.path = null; return null; }   // the way got blocked: plan again
+      const fine = m.it.vehicle ? isRoad(p.x, p.z) : stepOk(m.to, p);
+      if (!fine || Math.abs(p.x - m.to.x) + Math.abs(p.z - m.to.z) !== 1) { m.path = null; return null; }   // the way got blocked: plan again
       return m.path.shift();
     }
     // a pet with a best friend walks along with them
@@ -5455,8 +5456,97 @@
     if (!t) { sfx.nope(); toast(`The ${ITEMS[type].label.toLowerCase()} needs a road to drive out! Build a road next to it. 🛣️`, 3000); return; }
     if (movers.filter(m => m.type === type).length >= 3) { toast(`All the ${ITEMS[type].label.toLowerCase()}s are already out!`); return; }
     const m = addMover(type, t.x, t.z, newSeed());
-    m.temp = true; m.life = 22; m.wait = .2; m.sirenT = 22;
+    // out for a little drive with the lights on, then back home to the station (life is only a safety net)
+    m.temp = true; m.base = o; m.homeT = 12 + Math.random() * 6; m.life = 80; m.wait = .2; m.sirenT = m.homeT;
     sfx.siren(); toast(msg, 2200);
+  }
+  /* ---------- vehicles with somewhere to be ---------- */
+  // the shortest drive along the roads (breadth-first, like findPath, but only over road tiles and bridges)
+  function findRoadPath(a, b) {
+    const start = idx(a.x, a.z), end = idx(b.x, b.z);
+    if (start === end) return [];
+    const prev = new Int32Array(N * N).fill(-1);
+    const q = [start]; prev[start] = start;
+    for (let i = 0; i < q.length && prev[end] < 0; i++) {
+      const c = q[i], cx = c % N, cz = (c / N) | 0;
+      for (const [dx, dz] of DIRS) {
+        const x = cx + dx, z = cz + dz;
+        if (!inB(x, z) || !isRoad(x, z) || prev[idx(x, z)] >= 0) continue;
+        prev[idx(x, z)] = c; q.push(idx(x, z));
+      }
+    }
+    if (prev[end] < 0) return null;
+    const path = [];
+    for (let c = end; c !== start; c = prev[c]) path.push({ x: c % N, z: (c / N) | 0 });
+    return path.reverse();
+  }
+  // where vehicles like to go now and then; a vehicle sent out from its station always drives home again
+  const TRIPS = {
+    police: { to: ['policestation'], every: [30, 60], stay: 3 },
+    icetruck: { to: ['playground', 'pitch', 'sandbox', 'carousel', 'sandcastle', 'umbrella'], every: [30, 55], stay: 5 },
+  };
+  const TRIP_RANGE = 24, TRIP_MAX = 60;
+  const between = ([a, b]) => a + Math.random() * (b - a);
+  function planTrip(m, o, kind) {
+    const t = nearTile(o, isRoad, true);
+    const path = t && findRoadPath(m.to, t);
+    if (!path || !path.length || path.length > TRIP_MAX) return false;
+    m.path = path;
+    m.trip = { o, kind, stay: 0, replan: m.trip ? m.trip.replan : 1 };
+    return true;
+  }
+  function endTrip(m, home) {
+    m.trip = null; m.path = null;
+    if (home) m.life = Math.min(m.life ?? 8, 8);   // can't get home: drive about a little longer, then off they go as before
+  }
+  function arriveTrip(m) {
+    const tr = m.trip, top = topOf(tr.o);
+    m.path = null;
+    if (tr.kind === 'home') {
+      // back at the station: in through the big doors
+      m.trip = null; m.sirenT = 0;
+      floatEmoji('👋', m.pos.clone().setY(.5)); sfx.toot();
+      removeMover(m);
+      return;
+    }
+    const def = TRIPS[m.type];
+    tr.stay = def.stay; m.wait = def.stay;
+    if (m.type === 'police') { m.sirenT = def.stay; floatEmoji('👮', top); }
+    else if (m.type === 'icetruck') {
+      floatEmoji('🍦', m.pos.clone().setY(.5), 2);
+      if (m.pos.distanceTo(cam.target) < cam.dist * .8) sfx.jingle();   // only when you're watching nearby
+      for (let i = 0; i < 1 + (Math.random() < .5); i++) setTimeout(() => { if (objs.has(tr.o)) spawnVisitor(tr.o, 'kid'); }, 600 + i * 700);
+    }
+  }
+  function stepTrip(m, dt) {
+    const tr = m.trip;
+    if (!tr) {
+      if (m.homeT !== undefined) {
+        if ((m.homeT -= dt) <= 0) { m.homeT = undefined; if (!objs.has(m.base) || !planTrip(m, m.base, 'home')) endTrip(m, true); }
+        return;
+      }
+      const def = TRIPS[m.type];
+      if (!def || m.temp) return;
+      if ((m.tripT = (m.tripT ?? between(def.every)) - dt) > 0) return;
+      m.tripT = between(def.every);
+      const at = m.to;
+      const near = [...objs].filter(o => def.to.includes(o.type) && Math.abs(o.x - at.x) + Math.abs(o.z - at.z) <= TRIP_RANGE)
+        .sort((a, b) => Math.abs(a.x - at.x) + Math.abs(a.z - at.z) - Math.abs(b.x - at.x) - Math.abs(b.z - at.z));
+      for (const o of near.slice(0, 3)) if (planTrip(m, o, 'visit')) break;
+      return;
+    }
+    if (!objs.has(tr.o)) { endTrip(m, tr.kind === 'home'); return; }   // the place was taken away
+    if (tr.stay > 0) {
+      if ((tr.stay -= dt) <= 0) endTrip(m);
+      return;
+    }
+    if (!m.path) {
+      // the road got changed under them: find a new way once, otherwise just carry on driving about
+      if (tr.replan-- > 0 && planTrip(m, tr.o, tr.kind)) return;
+      endTrip(m, tr.kind === 'home');
+      return;
+    }
+    if (!m.path.length && m.t >= 1) arriveTrip(m);
   }
   /* ---------- residents: people who live in the homes ---------- */
   const RESIDENTS = { house: 1, cottage: 1, flats: 2, castle: 1 };
@@ -6402,6 +6492,8 @@
     if (m.it.person && stepPerson(m, dt, time)) return;
     if (m.it.vehicle) {
       if (!isRoad(m.to.x, m.to.z) || !isRoad(m.from.x, m.from.z)) { removeMover(m); return; }
+      stepTrip(m, dt);
+      if (!movers.includes(m)) return;   // home again
     } else if (!walkable(m.to.x, m.to.z)) {
       if (walkable(m.from.x, m.from.z)) { m.to = { ...m.from }; m.t = 1; } else if (!hopOff(m)) { removeMover(m); return; }
     }
@@ -6422,7 +6514,7 @@
         if (!blocked && m.t > .3 && m.t < .5 && isCrossing(m.to.x, m.to.z) && walkerOn(m.to)) blocked = true;
       }
       if (!blocked && !(m.waveT > 0)) {
-        m.t += dt * m.speed; moving = true;
+        m.t += dt * m.speed * (m.trip && m.path && !m.path.length ? .5 : 1); moving = true;   // slow down on the last stretch
       }
       if (m.t >= 1) {
         const n = nextTile(m);
