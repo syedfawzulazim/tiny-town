@@ -3287,6 +3287,7 @@
     sail: 'The wind pushes the sailboat along. Whoosh!',
     speed: 'Vroom! The speedboat zooms over the waves.',
     crab: 'Snip snap! Crabs walk sideways.',
+    frog: 'Ribbit! A little frog lives by the pond.',
     dolphin: 'Dolphins love to jump and play. Eee eee!',
     whale: 'A big whale! It breathes out through the hole on its head. Whoosh!',
   };
@@ -3557,6 +3558,212 @@
     stepPod(dt);
     stepWhale(dt);
   }
+  /* ---------- little surprises: fireworks over the castle at night, frogs by flowery ponds, lamps that twinkle in a row ---------- */
+  // fireworks: one pool of glowing sparks, so a burst can never make more than SPARKS of them
+  const SPARKS = 260;
+  const sparkPos = new Float32Array(SPARKS * 3), sparkCol = new Float32Array(SPARKS * 3);
+  const sparkGeo = new THREE.BufferGeometry();
+  sparkGeo.setAttribute('position', new THREE.BufferAttribute(sparkPos, 3));
+  sparkGeo.setAttribute('color', new THREE.BufferAttribute(sparkCol, 3));
+  const sparkMat = new THREE.PointsMaterial({ size: .34, map: puffTex, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+  const sparkPts = new THREE.Points(sparkGeo, sparkMat);
+  sparkPts.frustumCulled = false; sparkPts.visible = false; sparkPts.renderOrder = 9; scene.add(sparkPts);
+  const sparks = [], rockets = [];
+  const BURSTS = [['#ff5d8f', '#ffd166'], ['#5ec8ff', '#ffffff'], ['#9b7bff', '#ff8fd8'], ['#7dff9a', '#ffe14d'], ['#ff9f43', '#ff5d5d']];
+  let fireworksAt = 0;
+  // returns false while the last show is still going (a cooldown, so lots of taps can't pile up)
+  function fireworks(o) {
+    const now = performance.now();
+    if (now < fireworksAt) return false;
+    fireworksAt = now + 5500;
+    const c = o.group.position, n = reduceMotion ? 2 : 4;
+    for (let i = 0; i < n; i++) {
+      rockets.push({
+        p: new THREE.Vector3(c.x + (Math.random() - .5) * 1.4, 1.7, c.z + (Math.random() - .5) * 1.4),
+        v: new THREE.Vector3((Math.random() - .5) * .3, 2.2 + Math.random() * .4, (Math.random() - .5) * .3),
+        wait: i * .55 + Math.random() * .2, fuse: .55 + Math.random() * .15, cols: BURSTS[(Math.random() * BURSTS.length) | 0], up: false,
+      });
+    }
+    return true;
+  }
+  function burst(r) {
+    const n = reduceMotion ? 18 : 40;
+    sfx.pop();
+    for (let i = 0; i < n && sparks.length < SPARKS; i++) {
+      // even directions over a ball, so it opens like a flower
+      const y = 1 - 2 * (i + .5) / n, rr = Math.sqrt(1 - y * y), a = i * 2.39996, s = 1.5 + Math.random() * .3;
+      sparks.push({ p: r.p.clone(), v: new THREE.Vector3(Math.cos(a) * rr * s, y * s + .25, Math.sin(a) * rr * s), c: cA.set(r.cols[i % 2]).clone(), life: 0, max: 1.3 + Math.random() * .5 });
+    }
+  }
+  function stepFireworks(dt) {
+    for (let i = rockets.length - 1; i >= 0; i--) {
+      const r = rockets[i];
+      if ((r.wait -= dt) > 0) continue;
+      if (!r.up) { r.up = true; sfx.whoosh(); }
+      r.p.addScaledVector(r.v, dt); r.v.y -= dt * 1.2;
+      if ((r.fuse -= dt) <= 0) { burst(r); rockets.splice(i, 1); }
+    }
+    for (let i = sparks.length - 1; i >= 0; i--) {
+      const s = sparks[i];
+      s.life += dt;
+      if (s.life >= s.max) { sparks.splice(i, 1); continue; }
+      s.v.multiplyScalar(1 - dt * 1.6); s.v.y -= dt * .9;
+      s.p.addScaledVector(s.v, dt);
+    }
+    sparkPts.visible = sparks.length > 0 || rockets.some(r => r.up);
+    if (!sparkPts.visible) return;
+    let k = 0;
+    for (const r of rockets) if (r.up && k < SPARKS) { sparkPos.set([r.p.x, r.p.y, r.p.z], k * 3); sparkCol.set([1, .9, .6], k * 3); k++; }
+    for (const s of sparks) {
+      if (k >= SPARKS) break;
+      const f = 1 - s.life / s.max, tw = .75 + .25 * Math.sin(s.life * 40 + k);   // fade out, with a little twinkle
+      sparkPos.set([s.p.x, s.p.y, s.p.z], k * 3);
+      sparkCol.set([s.c.r * f * tw, s.c.g * f * tw, s.c.b * f * tw], k * 3);
+      k++;
+    }
+    sparkGeo.setDrawRange(0, k);
+    sparkGeo.attributes.position.needsUpdate = sparkGeo.attributes.color.needsUpdate = true;
+  }
+
+  // frogs: a duck pond with flowers close by gets a little frog that hops out now and then
+  const FROG_FLOWERS = new Set(['flowers', 'sunflowers']);
+  let surprisesDirty = true;   // set whenever things are built or taken away; the frogs are sorted out on the next frame
+  const frogs = new Map();     // pond -> frog
+  function makeFrog() {
+    const g = new THREE.Group(), body = new THREE.Group(), green = '#4fb848', dark = '#2f8a3a';
+    const b = ball(body, .07, soft(green), 0, .055, 0, 1); b.scale.set(1, .7, 1.15);
+    const belly = ball(body, .055, soft('#d8f0a8'), 0, .045, .02, 1); belly.scale.set(1, .6, 1.1);
+    for (const x of [-.035, .035]) { ball(body, .026, soft(green), x, .1, .04, 1); ball(body, .013, '#1d1d1d', x, .112, .058, 1); }
+    for (const x of [-.06, .06]) { const l = ball(body, .032, soft(dark), x, .03, -.04, 1); l.scale.set(.7, .5, 1.3); }
+    for (const x of [-.04, .04]) cyl(body, .008, .008, .04, dark, x, .01, .06, 4);
+    bake(body); g.add(body);
+    const hit = new THREE.Mesh(new THREE.BoxGeometry(.45, .3, .45), hitMat); hit.position.y = .1; g.add(hit);
+    g.userData.body = body;
+    g.visible = false;
+    scene.add(g);
+    return g;
+  }
+  function dropFrog(pond) {
+    const f = frogs.get(pond);
+    if (!f) return;
+    scene.remove(f.g);
+    const i = vessels.indexOf(f.v); if (i >= 0) vessels.splice(i, 1);
+    frogs.delete(pond);
+  }
+  function sortFrogs() {
+    surprisesDirty = false;
+    for (const pond of [...frogs.keys()]) if (!objs.has(pond)) dropFrog(pond);
+    for (const o of objs) {
+      if (o.type !== 'pond') continue;
+      let flowery = false;
+      for (let dz = -2; dz <= 2 && !flowery; dz++) for (let dx = -2; dx <= 2 && !flowery; dx++) {
+        const c = cellAt(o.x + dx, o.z + dz);
+        if (c && FROG_FLOWERS.has(c.type)) flowery = true;
+      }
+      const f = frogs.get(o);
+      if (!flowery) { dropFrog(o); continue; }
+      if (f) { if (f.x !== o.x || f.z !== o.z) { f.x = o.x; f.z = o.z; f.state = 'hidden'; f.g.visible = false; } continue; }
+      const g = makeFrog(), v = { kind: 'frog', g, own: true, wob: 0 };
+      const frog = { g, v, x: o.x, z: o.z, state: 'hidden', t: 0, wait: 2 + Math.random() * 6, jump: 0, a: 0 };
+      v.tap = () => { frog.jump = 1; frog.wait = Math.max(frog.wait, 2.5); sfx.ribbit(); floatEmoji('💚', g.position.clone().setY(.45)); };
+      vessels.push(v);
+      frogs.set(o, frog);
+    }
+  }
+  function stepFrogs(dt, time) {
+    if (surprisesDirty) sortFrogs();
+    for (const [pond, f] of frogs) {
+      const c = pond.group.position, g = f.g;
+      f.jump = Math.max(0, f.jump - dt * 2.4);
+      if (f.state === 'hidden') {
+        if ((f.wait -= dt) > 0) continue;
+        // pop out of the water at the edge and hop onto the grass
+        f.a = Math.random() * Math.PI * 2; f.state = 'out'; f.t = 0; f.wait = 4 + Math.random() * 4; f.sang = false;
+        g.visible = true;
+        puff(new THREE.Vector3(c.x + Math.cos(f.a) * .3, .06, c.z + Math.sin(f.a) * .3), { vel: new THREE.Vector3(0, .3, 0), color: 0xffffff, size: .1, grow: 1.6, life: .5, alpha: .7 });
+      }
+      f.t += dt;
+      let r, hop = 0;
+      if (f.state === 'out') {
+        const k = Math.min(1, f.t / .45);
+        r = .3 + k * .32; hop = Math.sin(k * Math.PI) * .14;
+        if (k >= 1 && !f.sang && f.t > 1.2) { f.sang = true; if (Math.random() < .6) sfx.ribbit(.5); }
+        if ((f.wait -= dt) <= 0) { f.state = 'back'; f.t = 0; }
+      } else {
+        const k = Math.min(1, f.t / .45);
+        r = .62 - k * .32; hop = Math.sin(k * Math.PI) * .14;
+        if (k >= 1) {
+          f.state = 'hidden'; g.visible = false; f.wait = 18 + Math.random() * 22;
+          puff(new THREE.Vector3(c.x + Math.cos(f.a) * .3, .06, c.z + Math.sin(f.a) * .3), { vel: new THREE.Vector3(0, .3, 0), color: 0xffffff, size: .1, grow: 1.6, life: .5, alpha: .7 });
+          continue;
+        }
+      }
+      g.position.set(c.x + Math.cos(f.a) * r, .01 + hop + Math.sin(f.jump * Math.PI) * .3, c.z + Math.sin(f.a) * r);
+      // faces away from the pond on the way out, back towards it on the way in
+      g.rotation.y = Math.atan2(Math.cos(f.a), Math.sin(f.a)) + (f.state === 'back' ? Math.PI : 0);
+      g.userData.body.scale.y = 1 + (f.state === 'out' && f.t > .45 ? Math.sin(time * 5) * .04 : 0);   // breathing
+    }
+  }
+
+  // lamps close together (within 3 tiles) make a string, and light runs along it one lamp after another
+  const TWINKLE_GAP = 3;
+  const twinkles = [];
+  let twinkleAt = 0;
+  function lampChain(start) {
+    const lamps = [...objs].filter(o => o.type === 'lamp');
+    const depth = new Map([[start, 0]]), q = [start];
+    for (let i = 0; i < q.length; i++) {
+      for (const l of lamps) {
+        if (depth.has(l)) continue;
+        if (Math.max(Math.abs(l.x - q[i].x), Math.abs(l.z - q[i].z)) <= TWINKLE_GAP) { depth.set(l, depth.get(q[i]) + 1); q.push(l); }
+      }
+    }
+    return depth;
+  }
+  function twinkle(start, min = 2) {
+    const now = performance.now();
+    if (now < twinkleAt) return false;
+    const chain = lampChain(start);
+    if (chain.size < min) return false;
+    twinkleAt = now + 3000;
+    let deepest = 0;
+    for (const [lamp, d] of chain) {
+      deepest = Math.max(deepest, d);
+      const bulb = [];
+      lamp.group.traverse(m => { if (m.isMesh && m.material === lightMat) bulb.push(m); });
+      if (bulb.length) twinkles.push({ lamp, bulb, mat: null, halo: null, t: -d * .2 });
+    }
+    // a little run of notes up the scale, one for each step along the string
+    for (let d = 0; d <= Math.min(deepest, 7); d++) { const f = SCALE[Math.min(SCALE.length - 1, d + 2)] * 2; tone(f, f, .22, 'sine', .05, d * .2); }
+    return true;
+  }
+  function stepTwinkles(dt) {
+    for (let i = twinkles.length - 1; i >= 0; i--) {
+      const w = twinkles[i];
+      w.t += dt;
+      if (w.t < 0) continue;
+      if (!w.mat) {
+        w.mat = lightMat.clone(); for (const m of w.bulb) m.material = w.mat;
+        // and a soft glow around the bulb, so you can see it in the daytime too
+        w.halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: puffTex, color: 0xffe08a, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+        w.halo.position.copy(w.lamp.group.position).setY(.78); scene.add(w.halo);
+      }
+      const k = w.t / .7;
+      if (k >= 1 || !objs.has(w.lamp)) {
+        for (const m of w.bulb) m.material = lightMat;
+        w.mat.dispose(); scene.remove(w.halo); w.halo.material.dispose();
+        twinkles.splice(i, 1); continue;
+      }
+      const e = Math.sin(k * Math.PI);
+      w.mat.emissiveIntensity = lightMat.emissiveIntensity + e * 2.4;
+      w.halo.material.opacity = e * .9; w.halo.scale.setScalar(.3 + e * .5);
+    }
+  }
+  function stepSurprises(dt, time) {
+    stepFireworks(dt);
+    stepFrogs(dt, time);
+    stepTwinkles(dt);
+  }
   const flyGeo = new THREE.BufferGeometry();
   const fp = [];
   for (let i = 0; i < 90; i++) {
@@ -3709,12 +3916,14 @@
     }
     scene.add(o.group);
     objs.add(o);
+    surprisesDirty = true;
     if (animate) popIn(o.group);
     return o;
   }
   function removeObj(o) {
     for (let dz = 0; dz < o.h; dz++) for (let dx = 0; dx < o.w; dx++) cells[idx(o.x + dx, o.z + dz)] = null;
     objs.delete(o);
+    surprisesDirty = true;
     const g = o.group;
     shrinkOut(g, () => scene.remove(g));
     if (o.type === 'road') DIRS.forEach(([dx, dz]) => refreshRoad(o.x + dx, o.z + dz));
@@ -4096,6 +4305,11 @@
     },
     // whale: a long, low song, and a whoosh of breath
     whale: () => { voc({ f: [[0, 160], [.7, 300], [1.6, 220], [2.3, 120]], dur: 2.4, fm: [[0, M.oo], [1, M.o], [2.4, M.oo]], vib: [3, 6], breath: .1, attack: .4, release: .4, vol: .5 }); noise(.7, .18, 'highpass', 1500); },
+    // frog: a quick, croaky "rib-bit"
+    ribbit: (v = 1) => [[0, 1], [.16, .85]].forEach(([d, p]) => voc({ f: [[0, 260 * p], [.08, 200 * p]], dur: .1, src: 'square', fm: [[0, M.o], [.09, M.oo]], Q: [8, 10, 12], growl: .8, trem: [45, .7], breath: .1, attack: .004, release: .5, vol: .1 * v, delay: d })),
+    // fireworks: a rising whistle, then a soft pop with a crackle
+    whoosh: () => { cry({ f: [[0, 700], [.6, 1500]], dur: .6, type: 'sine', filter: 'highpass', q: [[0, 500]], Q: 1, vol: .025, attack: .1 }); noise(.5, .04, 'bandpass', 2500); },
+    pop: () => { noise(.35, .16, 'lowpass', 600); for (let i = 0; i < 5; i++) noise(.03, .05, 'highpass', 4000, .15 + Math.random() * .4); },
     // cat purring: breathing out, then in, with the 25-a-second rumble
     purr: () => { noise(.65, .3, 'lowpass', 380, 0, 26); noise(.55, .2, 'lowpass', 300, .7, 24); },
     place: () => { tone(330, 660, .12); tone(660, 990, .1, 'sine', .1, .08); },
@@ -4481,6 +4695,7 @@
   function clearTown() {
     for (const o of [...objs]) { scene.remove(o.group); objs.delete(o); }
     cells.fill(null);
+    surprisesDirty = true;
     for (const m of movers) scene.remove(m.g);
     movers.length = 0;
   }
@@ -5330,6 +5545,7 @@
       }
       case 'castle': {
         sfx.fanfare(); squish(g); floatEmoji('👑', top); floatEmoji('🎺', top, 2);
+        if (nightK > .5) fireworks(o);   // a secret: at night the castle puts on a firework show
         const royal = residentsOf(o).find(m => m.state === 'inside');
         if (royal) comeOut(royal, true);
         else spawnVisitor(o, 'adult');
@@ -5369,7 +5585,8 @@
         if (g.userData.duck) g.userData.duck.userData.jump = 1;
         break;
       case 'lamp':
-        sfx.sparkle(); floatEmoji('✨', top, 2); squish(g);
+        if (!twinkle(o)) sfx.sparkle();   // lamps in a row light up one after another
+        floatEmoji('✨', top, 2); squish(g);
         break;
       case 'fountain':
         sfx.sparkle(); floatEmoji('💧', top, 3); floatEmoji('🪙', top);
@@ -5775,6 +5992,7 @@
       if (o) dust(o.x, o.z, o.w, o.h);
       ghostSeed = newSeed(); rebuildGhost(); sfx.place();
       if (o) { say(`You built ${phraseOf(o.type, o.group)}!`); moveIn(o, true); }
+      if (o && o.type === 'lamp') setTimeout(() => { if (objs.has(o)) twinkle(o, 3); }, 500);
       if (o && HOMES.has(o.type)) tip('home', 'Tap your new home to meet who lives there. You can paint it too! 🎨');
     } else if (it.kind === 'road') {
       placeObj('road', tx, tz, 0, 0); sfx.road();
@@ -6252,6 +6470,7 @@
     boat.rotation.y = -a;
     stepVessels(dt, time);
     stepBeach(dt, time);
+    stepSurprises(dt, time);
     for (const b of birds) {
       const u = b.userData;
       u.a += u.s * dt; u.t += dt;
