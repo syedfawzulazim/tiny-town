@@ -3764,6 +3764,130 @@
     stepFrogs(dt, time);
     stepTwinkles(dt);
   }
+
+  /* ---------- little wishes: now and then someone thinks of something they'd love, in a picture bubble ---------- */
+  // only ever an invitation: if nobody builds it, the bubble just floats away and they carry on happily
+  const WISHES = {
+    kid: { pic: '🛝', places: ['playground', 'sandbox', 'carousel', 'ferris', 'treehouse'] },
+    adult: { pic: '🍦', places: ['icestand', 'cafe', 'bakery'] },
+    dog: { pic: '🎾', places: ['pitch', 'playground', 'sandbox'] },
+  };
+  const WISH_MAX = 2, WISH_SHOW = 9, WISH_RANGE = 14;
+  const wishes = [];
+  let wishT = 15 + Math.random() * 10;
+  const BUBBLE_TEX = {};
+  function bubbleTex(pic) {
+    if (!BUBBLE_TEX[pic]) {
+      const cv = document.createElement('canvas'); cv.width = cv.height = 160;
+      const c = cv.getContext('2d');
+      // a puffy thought cloud with two little dots trailing down to whoever is thinking
+      c.fillStyle = '#ffffff'; c.strokeStyle = 'rgba(60,70,100,.35)'; c.lineWidth = 5;
+      const puffs = [[80, 66, 44], [44, 74, 28], [116, 74, 28], [60, 40, 28], [102, 42, 28], [80, 96, 30]];
+      for (const pass of ['stroke', 'fill']) for (const [x, y, r] of puffs) { c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c[pass](); }
+      for (const [x, y, r] of [[48, 126, 9], [34, 146, 6]]) { c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.stroke(); c.fill(); }
+      c.font = '64px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+      c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText(pic, 80, 74);
+      BUBBLE_TEX[pic] = new THREE.CanvasTexture(cv);
+    }
+    return BUBBLE_TEX[pic];
+  }
+  const wishOf = m => wishes.find(w => w.m === m);
+  const canWish = m => WISHES[m.type] && movers.includes(m) && m.g.visible && !m.carried && !m.trick && !m.temp && !wishOf(m)
+    && (m.it.person ? m.state === 'out' && !m.goingHome && !m.errand && !m.path && !m.visiting : !m.path);
+  // the nearest place that matches, that they can actually get to
+  function wishPlace(m, w, only) {
+    let best = null, bd = Infinity;
+    const at = moverTile(m);
+    for (const o of only ? [only] : objs) {
+      if (!WISHES[m.type].places.includes(o.type)) continue;
+      const d = Math.abs(o.x - at.x) + Math.abs(o.z - at.z);
+      if (d > WISH_RANGE || d >= bd) continue;
+      const t = nearTile(o, walkable, true), path = t && findPath(at, t);
+      if (path && path.length <= 30) { best = { o, path }; bd = d; }
+    }
+    return best;
+  }
+  function startWish(m) {
+    const def = WISHES[m.type];
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: bubbleTex(def.pic), transparent: true, opacity: 0, depthWrite: false }));
+    s.renderOrder = 9; scene.add(s);
+    const h = new THREE.Box3().setFromObject(m.g).max.y - m.g.position.y;
+    const w = { m, s, h: Math.max(.35, h) + .3, t: 0, life: WISH_SHOW, go: null, wait: 2.5 };
+    wishes.push(w);
+    return w;
+  }
+  // off they go to the place they were thinking of
+  function goWish(w, found) {
+    const m = w.m;
+    w.go = found.o; w.life = Math.max(w.life, w.t + 25);
+    m.path = found.path; m.wait = Math.min(m.wait, .3);
+    if (m.it.person) m.errand = found.o;
+  }
+  function endWish(w, happy) {
+    const m = w.m;
+    if (happy && movers.includes(m)) { m.jump = 1; floatEmoji('❤️', m.g.position.clone().setY(w.h + .1), 2); sfx.hi(); }
+    if (w.go && !m.it.person && m.path) m.path = null;
+    w.go = null; w.fade = true; w.life = Math.min(w.life, w.t + .6);
+  }
+  function stepWishes(dt) {
+    if (!night && (wishT -= dt) <= 0) {
+      wishT = 25 + Math.random() * 25;
+      if (wishes.length < WISH_MAX) {
+        const who = movers.filter(canWish);
+        if (who.length) startWish(pick(Math.random, who));
+      }
+    }
+    for (let i = wishes.length - 1; i >= 0; i--) {
+      const w = wishes[i], m = w.m;
+      w.t += dt;
+      const gone = !movers.includes(m) || !m.g.visible || m.carried;
+      if (gone || w.t >= w.life) { scene.remove(w.s); w.s.material.dispose(); wishes.splice(i, 1); continue; }
+      // after a moment of thinking, if the place is already in town, they set off to it
+      if (!w.go && !w.fade && (w.wait -= dt) <= 0 && w.wait > -dt) { const f = wishPlace(m, w); if (f) goWish(w, f); }
+      if (w.go) {
+        const at = moverTile(m), near = Math.abs(w.go.x - at.x) + Math.abs(w.go.z - at.z) <= Math.max(w.go.w, w.go.h) + 1;
+        if (!objs.has(w.go) || night) endWish(w, false);   // the place was taken away, or it got dark: just carry on
+        else if (m.it.person ? m.errand !== w.go : !m.path || (!m.path.length && m.t >= 1)) endWish(w, near);
+      }
+      const fadeIn = Math.min(1, w.t / .4), fadeOut = Math.min(1, (w.life - w.t) / .6);
+      w.s.material.opacity = Math.min(fadeIn, fadeOut) * (w.go ? .85 : 1);
+      w.s.scale.setScalar(.55 * (.7 + .3 * fadeIn) * (1 + Math.sin(w.t * 2.5) * .03));
+      w.s.position.set(m.g.position.x + .12, m.g.position.y + w.h + Math.sin(w.t * 1.8) * .03, m.g.position.z);
+    }
+  }
+  // something new was built: anyone wishing for it nearby gets excited and goes to see
+  function wishBuilt(o) {
+    for (const w of wishes) {
+      if (w.go || w.fade || !WISHES[w.m.type].places.includes(o.type)) continue;
+      const f = wishPlace(w.m, w, o);
+      if (!f) continue;
+      w.m.jump = 1; floatEmoji('✨', w.m.g.position.clone().setY(w.h + .1), 2);
+      goWish(w, f);
+    }
+  }
+  // tapping someone with a wish: an extra happy hop
+  function wishPoked(m) {
+    const w = wishOf(m);
+    if (!w || w.fade) return;
+    m.jump = 1; floatEmoji('💭', m.g.position.clone().setY(w.h + .2));
+  }
+  // the bubble can be tapped too: it counts as tapping whoever is thinking it
+  function wishFromEvent(e) {
+    const r = canvas.getBoundingClientRect();
+    for (const w of wishes) {
+      if (w.s.material.opacity < .3) continue;
+      tmpP.copy(w.s.position).project(camera);
+      const x = (tmpP.x + 1) / 2 * r.width + r.left, y = (1 - tmpP.y) / 2 * r.height + r.top;
+      const rad = Math.max(24, w.s.scale.x * r.height / (2 * Math.tan(camera.fov * Math.PI / 360) * w.s.position.distanceTo(camera.position)) * .45);
+      if (Math.hypot(e.clientX - x, e.clientY - y) < rad) return w.m;
+    }
+    return null;
+  }
+  function clearWishes() {
+    for (const w of wishes) { scene.remove(w.s); w.s.material.dispose(); }
+    wishes.length = 0;
+  }
   const flyGeo = new THREE.BufferGeometry();
   const fp = [];
   for (let i = 0; i < 90; i++) {
@@ -4696,6 +4820,7 @@
     for (const o of [...objs]) { scene.remove(o.group); objs.delete(o); }
     cells.fill(null);
     surprisesDirty = true;
+    clearWishes();
     for (const m of movers) scene.remove(m.g);
     movers.length = 0;
   }
@@ -5186,7 +5311,7 @@
   function moverFromEvent(e) {
     setRay(e);
     const hits = ray.intersectObjects(movers.filter(m => m.g.visible).map(m => m.g), true);
-    if (!hits.length) return null;
+    if (!hits.length) return wishFromEvent(e);
     let o = hits[0].object;
     while (o && !movers.some(m => m.g === o)) o = o.parent;
     return movers.find(m => m.g === o) || null;
@@ -5196,6 +5321,7 @@
   // quiet: sound and jump only, no talking (used right after placing, when the voice names it)
   function poke(m, quiet) {
     m.jump = 1;
+    wishPoked(m);
     const SAYS = { cow: ['moo', 'Moooo! 🐄'], sheep: ['baa', 'Baaa! 🐑'], horse: ['neigh', 'Neighhh! 🐴'], chicken: ['cluck', 'Cluck cluck! 🐔'], rabbit: ['squeak', 'Hop hop! 🐰'], ducks: ['quack', 'Quack quack, peep peep! 🐥'] };
     if (m.type === 'police') { sfx.siren(); m.sirenT = 3; }
     else if (m.type === 'icetruck') { sfx.jingle(); if (!quiet) toast('Ice cream! Who wants one? 🍦', 1600); }
@@ -5991,7 +6117,7 @@
       const o = placeObj(tool, a.x0, a.z0, rot, ghostSeed);
       if (o) dust(o.x, o.z, o.w, o.h);
       ghostSeed = newSeed(); rebuildGhost(); sfx.place();
-      if (o) { say(`You built ${phraseOf(o.type, o.group)}!`); moveIn(o, true); }
+      if (o) { say(`You built ${phraseOf(o.type, o.group)}!`); moveIn(o, true); wishBuilt(o); }
       if (o && o.type === 'lamp') setTimeout(() => { if (objs.has(o)) twinkle(o, 3); }, 500);
       if (o && HOMES.has(o.type)) tip('home', 'Tap your new home to meet who lives there. You can paint it too! 🎨');
     } else if (it.kind === 'road') {
@@ -6471,6 +6597,7 @@
     stepVessels(dt, time);
     stepBeach(dt, time);
     stepSurprises(dt, time);
+    stepWishes(dt);
     for (const b of birds) {
       const u = b.userData;
       u.a += u.s * dt; u.t += dt;

@@ -20,6 +20,7 @@ Open `index.html` in any modern browser. Nothing to install.
 - Every animal has its own voice, made like a real one (a throat, a mouth that opens and closes, breath and a little echo), and no two calls are quite the same: dogs bark, cats meow and purr, cows moo, sheep baa, horses whinny, ducks quack (and their babies peep), and at the zoo, lions roar and elephants trumpet.
 - The beach is alive: waves wash up the sand and slide back, crabs scuttle sideways, a kite flies, a speedboat zooms about with a white wake, dolphins jump, and now and then a whale comes up to blow. Tap them to hear them.
 - There are little secrets to find: tap the castle at night, plant flowers next to a duck pond and wait, or put street lamps in a row and tap one.
+- Now and then someone thinks of something they'd love, shown in a little picture bubble: a kid dreams of a slide 🛝, a grown-up of an ice cream 🍦, a dog of a ball 🎾. Build it nearby and they hurry over, happy. Ignore it and the bubble just floats away.
 - In the daytime, people go about their day: kids go to school and the playground, and grown-ups go to the shops and the café. At night they go home.
 - ↩️ undoes the last change and says what it put back; ↪️ does it again (Ctrl+Z, Ctrl+Y). 🌧️ changes the weather (rain brings umbrellas and puddles, then a rainbow; snow turns the ground white), and 🎵 plays soft music.
 - Tap a building to play with it: the school bell rings, the hospital sends out an ambulance, the duck jumps.
